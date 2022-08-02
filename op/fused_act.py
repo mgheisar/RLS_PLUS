@@ -1,12 +1,14 @@
 import os
-
+# print(os.getcwd())
+# print(os.path.dirname(__file__))
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
-
+# print(os.system('gcc -v'))
+# print(os.system('nvcc --version'))
 module_path = os.path.dirname(__file__)
 fused = load(
     "fused",
@@ -27,7 +29,7 @@ class FusedLeakyReLUFunctionBackward(Function):
         empty = grad_output.new_empty(0)
 
         grad_input = fused.fused_bias_act(
-            grad_output.contiguous(), empty, out, 3, 1, negative_slope, scale
+            grad_output, empty, out, 3, 1, negative_slope, scale
         )
 
         dim = [0]
@@ -47,13 +49,7 @@ class FusedLeakyReLUFunctionBackward(Function):
     def backward(ctx, gradgrad_input, gradgrad_bias):
         out, = ctx.saved_tensors
         gradgrad_out = fused.fused_bias_act(
-            gradgrad_input.contiguous(),
-            gradgrad_bias,
-            out,
-            3,
-            1,
-            ctx.negative_slope,
-            ctx.scale,
+            gradgrad_input, gradgrad_bias, out, 3, 1, ctx.negative_slope, ctx.scale
         )
 
         return gradgrad_out, None, None, None, None
@@ -122,6 +118,4 @@ def fused_leaky_relu(input, bias=None, negative_slope=0.2, scale=2 ** 0.5):
             return F.leaky_relu(input, negative_slope=0.2) * scale
 
     else:
-        return FusedLeakyReLUFunction.apply(
-            input.contiguous(), bias, negative_slope, scale
-        )
+        return FusedLeakyReLUFunction.apply(input, bias, negative_slope, scale)

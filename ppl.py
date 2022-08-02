@@ -71,7 +71,9 @@ if __name__ == "__main__":
     ckpt = torch.load(args.ckpt)
 
     g = Generator(args.size, latent_dim, 8).to(device)
-    g.load_state_dict(ckpt["g_ema"])
+    map_location = lambda storage, loc: storage.cuda()
+    g.load_state_dict(torch.load(ckpt, map_location=map_location)["g_ema"], strict=False)
+    # g.load_state_dict(ckpt["g_ema"])
     g.eval()
 
     percept = lpips.PerceptualLoss(

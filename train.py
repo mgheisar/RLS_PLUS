@@ -1,8 +1,13 @@
+# nohup python train.py "BBBC021" --exp="BBBC021" --batch=64 --gpu_num=2 > run1.txt &
+# nohup python train.py "BlueBubble" --exp="BlueBubble" --batch=64 --gpu_num=1 > run2.txt &
+# nohup python train.py "Golgi" --exp="Golgi" --mode="hflip crop" --gpu_num=2 > run3.txt &
+# nohup python train.py "BlueBubbleDMSO" --exp="BlueBubbleDMSO" --gpu_num=2 > run4.txt &  ####LATER
+
 import argparse
 import math
 import random
 import os
-
+from PIL import Image
 import numpy as np
 import torch
 from torch import nn, autograd, optim
@@ -17,7 +22,6 @@ try:
 
 except ImportError:
     wandb = None
-
 
 from dataset import MultiResolutionDataset
 from distributed import (
@@ -61,7 +65,7 @@ def sample_data(loader):
             yield batch
 
 
-def d_logistic_loss(real_pred, fake_pred):
+def d_logistic_loss(real_pred, fake_pred):  # SoftPlus is a smooth approximation to the ReLU function
     real_loss = F.softplus(-real_pred)
     fake_loss = F.softplus(fake_pred)
 
@@ -252,14 +256,13 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
             weighted_path_loss = args.path_regularize * args.g_reg_every * path_loss
 
             if args.path_batch_shrink:
-                weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
+                weighted_path_loss += 0 * fake_img[0, 0, 0, 0]  # !!!!!!
 
             weighted_path_loss.backward()
 
             g_optim.step()
-
             mean_path_length_avg = (
-                reduce_sum(mean_path_length).item() / get_world_size()
+                    reduce_sum(mean_path_length).item() / get_world_size()
             )
 
         loss_dict["path"] = path_loss
@@ -308,7 +311,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     sample, _ = g_ema([sample_z])
                     utils.save_image(
                         sample,
-                        f"sample/{str(i).zfill(6)}.png",
+                        f"sample/{str(args.exp)}/{str(i).zfill(6)}.png",
                         nrow=int(args.n_sample ** 0.5),
                         normalize=True,
                         range=(-1, 1),
@@ -325,31 +328,31 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         "args": args,
                         "ada_aug_p": ada_aug_p,
                     },
-                    f"checkpoint/{str(i).zfill(6)}.pt",
+                    f"checkpoint/{str(args.exp)}/{str(i).zfill(6)}.pt",
                 )
 
 
 if __name__ == "__main__":
-    device = "cuda"
-
+    torch.manual_seed(0)
     parser = argparse.ArgumentParser(description="StyleGAN2 trainer")
 
     parser.add_argument("path", type=str, help="path to the lmdb dataset")
     parser.add_argument('--arch', type=str, default='stylegan2', help='model architectures (stylegan2 | swagan)')
+    parser.add_argument('--exp', type=str, default='3', help='experiment name')
     parser.add_argument(
         "--iter", type=int, default=800000, help="total training iterations"
     )
     parser.add_argument(
-        "--batch", type=int, default=16, help="batch sizes for each gpus"
+        "--batch", type=int, default=32, help="batch sizes for each gpus"
     )
     parser.add_argument(
         "--n_sample",
         type=int,
-        default=64,
+        default=35,
         help="number of the samples generated during training",
     )
     parser.add_argument(
-        "--size", type=int, default=256, help="image sizes for the model"
+        "--size", type=int, default=128, help="image sizes for the model"
     )
     parser.add_argument(
         "--r1", type=float, default=10, help="weight of the r1 regularization"
@@ -402,6 +405,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--augment", action="store_true", help="apply non leaking augmentation"
+        # store_true is same as const=True and default=False and store_false is other way around
     )
     parser.add_argument(
         "--augment_p",
@@ -427,18 +431,25 @@ if __name__ == "__main__":
         default=256,
         help="probability update interval of the adaptive augmentation",
     )
+    parser.add_argument('--mode', type=str, default="rotate crop hflip vflip", help='data transformation mode')
+    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
+    parser.add_argument("--latent", type=int, default=512, help="size of latent codes")
 
     args = parser.parse_args()
-
-    n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-    args.distributed = n_gpu > 1
+    torch.cuda.set_device(args.gpu_num)
+    # print(torch.cuda.current_device())
+    # cuda = True if torch.cuda.is_available() else False
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    args.distributed = False
+    # n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+    # args.distributed = n_gpu > 1
 
     if args.distributed:
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend="nccl", init_method="env://")
         synchronize()
 
-    args.latent = 512
+    # args.latent = 512
     args.n_mlp = 8
 
     args.start_iter = 0
@@ -459,16 +470,16 @@ if __name__ == "__main__":
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
     ).to(device)
     g_ema.eval()
-    accumulate(g_ema, generator, 0)
 
-    g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
+    accumulate(g_ema, generator, 0)
+    g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)  # lazy regularization g_reg_ratio=k/(k+1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
 
     g_optim = optim.Adam(
         generator.parameters(),
         lr=args.lr * g_reg_ratio,
         betas=(0 ** g_reg_ratio, 0.99 ** g_reg_ratio),
-    )
+    )  # adjust the optimizer hyperparameters lr=c*lr , betta=betta^c where c=g_reg_ratio
     d_optim = optim.Adam(
         discriminator.parameters(),
         lr=args.lr * d_reg_ratio,
@@ -486,13 +497,13 @@ if __name__ == "__main__":
 
         except ValueError:
             pass
+        map_location = lambda storage, loc: storage.cuda()
+        generator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g"], strict=False)
+        discriminator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d"], strict=False)
+        g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
 
-        generator.load_state_dict(ckpt["g"])
-        discriminator.load_state_dict(ckpt["d"])
-        g_ema.load_state_dict(ckpt["g_ema"])
-
-        g_optim.load_state_dict(ckpt["g_optim"])
-        d_optim.load_state_dict(ckpt["d_optim"])
+        g_optim.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_optim"], strict=False)
+        g_optim.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d_optim"], strict=False)
 
     if args.distributed:
         generator = nn.parallel.DistributedDataParallel(
@@ -509,21 +520,54 @@ if __name__ == "__main__":
             broadcast_buffers=False,
         )
 
-    transform = transforms.Compose(
-        [
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
-        ]
-    )
+    if args.mode == "validate":
+        transform = transforms.Compose([transforms.ToTensor(),
+                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True), ])
+    elif args.mode == "hflip crop":
+        transform = transforms.Compose([transforms.CenterCrop(args.size),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True), ])
 
-    dataset = MultiResolutionDataset(args.path, transform, args.size)
-    loader = data.DataLoader(
-        dataset,
-        batch_size=args.batch,
-        sampler=data_sampler(dataset, shuffle=True, distributed=args.distributed),
-        drop_last=True,
-    )
+    elif args.mode == "rotate crop hflip vflip":
+        transform = transforms.Compose([transforms.RandomRotation(180),  # limit=(-60, 60)
+                                        transforms.CenterCrop(args.size),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.RandomVerticalFlip(),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True), ])
+
+    elif args.mode == "rotate crop hflip":
+        transform = transforms.Compose([transforms.RandomRotation(180),
+                                        transforms.CenterCrop(args.size),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True), ])
+
+    dataset = MultiResolutionDataset(args.path, transform, 196)
+    if args.exp == "Golgi":
+        num_train = int(len(dataset) * 0.90)
+        train_set, val_set = torch.utils.data.random_split(dataset,
+                                                           [num_train, len(dataset) - num_train])
+        # golgi = {"val":val_set.indices, "train":train_set.indices}
+        # torch.save(golgi, "val_set_golgi.pt")
+        # exit(0)
+        # # loader = data.DataLoader(val_set, batch_size=1, shuffle=False)
+        # # img = next(iter(loader))
+
+        loader = data.DataLoader(
+            train_set,
+            batch_size=args.batch,
+            sampler=data_sampler(train_set, shuffle=True, distributed=args.distributed),
+            drop_last=True,
+        )
+    else:
+        loader = data.DataLoader(
+            dataset,
+            batch_size=args.batch,
+            sampler=data_sampler(dataset, shuffle=True, distributed=args.distributed),
+            drop_last=True,
+        )
 
     if get_rank() == 0 and wandb is not None and args.wandb:
         wandb.init(project="stylegan 2")

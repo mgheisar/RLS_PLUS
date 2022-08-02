@@ -1,3 +1,5 @@
+import tensorflow as tf
+# print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 import argparse
 import os
 import sys
@@ -9,6 +11,8 @@ import numpy as np
 from torchvision import utils
 
 from model import Generator, Discriminator
+# print("sys path" , sys.path)
+# print(os.environ['PATH'])
 
 
 def convert_modconv(vars, source_name, target_name, flip=False):
@@ -221,7 +225,7 @@ if __name__ == "__main__":
         default=2,
         help="channel multiplier factor. config-f = 2, else = 1",
     )
-    parser.add_argument("path", metavar="PATH", help="path to the tensorflow weights")
+    parser.add_argument("--path", type=str, default="stylegan2-ffhq-config-f.pkl", help="path to the tensorflow weights")
 
     args = parser.parse_args()
 

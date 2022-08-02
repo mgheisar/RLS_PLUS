@@ -1,8 +1,11 @@
 import argparse
-
 import torch
 
-
+# Face: "checkpoint/stylegan2-ffhq-config-f.pt" --out "factor_face.pt"
+# DMSO: "checkpoint/BlueBubble/150000.pt" --out "factor_BlueBubble.pt"
+# "checkpoint/BlueBubbleDMSO/400000.pt" --out "factor_BlueBubbleDMSO.pt"
+torch.cuda.set_device(0)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extract factor/eigenvectors of latent spaces using closed form factorization"
@@ -11,11 +14,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--out", type=str, default="factor.pt", help="name of the result factor file"
     )
-    parser.add_argument("ckpt", type=str, help="name of the model checkpoint")
+    parser.add_argument("--ckpt", type=str, default="checkpoint/BBBC021/150000.pt", help="name of the model checkpoint")
 
     args = parser.parse_args()
-
-    ckpt = torch.load(args.ckpt)
+    map_location = lambda storage, loc: storage.cuda()
+    ckpt = torch.load(args.ckpt, map_location=map_location)
     modulate = {
         k: v
         for k, v in ckpt["g_ema"].items()
@@ -30,4 +33,3 @@ if __name__ == "__main__":
     eigvec = torch.svd(W).V.to("cpu")
 
     torch.save({"ckpt": args.ckpt, "eigvec": eigvec}, args.out)
-

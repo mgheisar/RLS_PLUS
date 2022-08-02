@@ -7,7 +7,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Function
-
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d, conv2d_gradfix
 
 
@@ -680,7 +679,8 @@ class Discriminator(nn.Module):
         out = self.convs(input)
 
         batch, channel, height, width = out.shape
-        group = min(batch, self.stddev_group)
+        group = batch
+        # group = min(batch, self.stddev_group)
         stddev = out.view(
             group, -1, self.stddev_feat, channel // self.stddev_feat, height, width
         )

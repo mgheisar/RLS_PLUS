@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="457b55c6-bd64-44cf-8c49-d9ed297ba1b2" name="kresnik">
+        <fileTransfer accessType="SFTP" host="kresnik" port="22" sshConfigId="05a3dc6e-7ba1-4d93-a6d3-9860ab913ddc" sshConfig="gheisari@kresnik:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="842a7ec2-0083-4cb3-a5dd-8b9976bcb560" name="kupala">
+        <fileTransfer accessType="SFTP" host="kupala" port="22" sshConfigId="6dd225b9-5471-4d53-9e04-e2742f1a5c5c" sshConfig="gheisari@kupala:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="fa58159e-e6a7-40e4-9894-4025fde856ae" name="koliada">
+        <fileTransfer accessType="SFTP" host="koliada" port="22" sshConfigId="e82f539b-10fd-4474-abd8-c7369e25f06e" sshConfig="gheisari@koliada:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

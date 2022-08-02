@@ -5,6 +5,9 @@ from torchvision import utils
 from model import Generator
 from tqdm import tqdm
 
+# Face: --ckpt "checkpoint/stylegan2-ffhq-config-f.pt" --size 1024
+# DMSO: --ckpt "checkpoint/100000.pt" --size 128
+
 
 def generate(args, g_ema, device, mean_latent):
 

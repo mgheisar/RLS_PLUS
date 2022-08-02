@@ -1,6 +1,5 @@
 from collections import abc
 import os
-
 import torch
 from torch.nn import functional as F
 from torch.autograd import Function
@@ -15,7 +14,6 @@ upfirdn2d_op = load(
         os.path.join(module_path, "upfirdn2d_kernel.cu"),
     ],
 )
-
 
 class UpFirDn2dBackward(Function):
     @staticmethod

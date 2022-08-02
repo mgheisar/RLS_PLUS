@@ -131,3 +131,11 @@ dmypy.json
 wandb/
 *.lmdb/
 *.pkl
+*.pth
+*.pt
+*.png
+*.jpg
+*.jpeg
+*.pkl
+*.mp4
+*.gif
