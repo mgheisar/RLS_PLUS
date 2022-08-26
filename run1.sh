@@ -32,3 +32,7 @@ done
 nohup python temp2.py --ckpt "checkpoint/stylegan2-ffhq-config-f.pt" --gpu_num 1 --factor 64 --out_dir "/00006_64x"  --files "input/00006_64x.png" > run_00006_64x.out &
 
 nohup python temp2.py --ckpt "checkpoint/stylegan2-ffhq-config-f.pt" --gpu_num 0 --factor 64 --out_dir "/00420_64x"  --files "input/00420_64x.png" > run_00420_64x.out &
+
+
+#os.system(f"/users/biocomp/gheisari/miniconda3/envs/superres-torch/bin/python sr_boost.py --ckpt {args.ckpt} "
+#              f"--factor {args.factor} --gpu_num {args.gpu_num}") # run sr_boost script

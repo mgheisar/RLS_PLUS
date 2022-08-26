@@ -3,19 +3,6 @@ from torch import nn
 from torch.nn import functional as F
 
 
-def normalize_image_(img):  # image(b,C,H,W)
-    if len(img.size()) == 4:
-        image = img.view(img.size(0), img.size(1), -1)
-    else:
-        image = img.view(img.size(0), -1)
-    image -= image.min(2, keepdim=True)[0]
-    image /= image.max(2, keepdim=True)[0]
-    image -= 0.5
-    image /= 0.5
-    image = image.view(*img.size())
-    return image
-
-
 class BicubicDownSample(nn.Module):
     def bicubic_kernel(self, x, a=-0.50):
         """
@@ -30,7 +17,7 @@ class BicubicDownSample(nn.Module):
         else:
             return 0.0
 
-    def __init__(self, factor=4, normalize=False, padding='reflect', device='cuda:0'):
+    def __init__(self, factor=4, cuda=True, padding='reflect', device='cuda:0'):
         super().__init__()
         self.factor = factor
         self.device = device
@@ -43,10 +30,8 @@ class BicubicDownSample(nn.Module):
         self.k1 = torch.cat([k1, k1, k1], dim=0)
         k2 = torch.reshape(k, shape=(1, 1, 1, size))
         self.k2 = torch.cat([k2, k2, k2], dim=0).to(self.device)
-        # self.cuda = '.cuda' if cuda else ''
-
+        self.cuda = '.cuda' if cuda else ''
         self.padding = padding
-        self.normalize = normalize
         for param in self.parameters():
             param.requires_grad = False
 
@@ -60,8 +45,6 @@ class BicubicDownSample(nn.Module):
         pad_along_width = max(filter_width - stride, 0)
         filters1 = self.k1.to(torch.float).to(self.device)
         filters2 = self.k2.to(torch.float).to(self.device)
-        # filters1 = self.k1.type('torch{}.FloatTensor'.format(self.cuda))
-        # filters2 = self.k2.type('torch{}.FloatTensor'.format(self.cuda))
 
         # compute actual padding values for each side
         pad_top = pad_along_height // 2
@@ -82,15 +65,11 @@ class BicubicDownSample(nn.Module):
 
         x = F.pad(x, (pad_left, pad_right, 0, 0), self.padding)
         x = F.conv2d(input=x, weight=filters2, stride=(1, stride), groups=3)
-        # a, b = torch.min(x), torch.max(x)
-        if self.normalize:
-            x = normalize_image_(x)
-        # x = torch.clamp(x, 0, 1)
-        # if clip_round:
-        #     x = torch.clamp(torch.round(x), 0.0, 255.)
-        #
-        # if nhwc:
-        #     x = torch.transpose(torch.transpose(x, 1, 3), 1, 2)
+        if clip_round:
+            x = torch.clamp(torch.round(x), 0.0, 255.)
+
+        if nhwc:
+            x = torch.transpose(torch.transpose(x, 1, 3), 1, 2)
         if byte_output:
             return x.type('torch.ByteTensor').to(self.device)
         else:

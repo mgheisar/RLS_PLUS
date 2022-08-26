@@ -1,6 +1,7 @@
 # # implementation of PULSE with NF Gaussianization
 import os
 import argparse
+import torchvision
 import pickle
 import torch
 from torch.nn import functional as F
@@ -8,38 +9,14 @@ from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 import lpips
-from model import Generator, Discriminator
+from model import Generator
 import time
 import numpy as np
 from FLOWS import flows as fnn
 import math
 from bicubic import BicubicDownSample
 import glob
-
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
-torch.backends.cudnn.deterministic = True
-
-
-def noise_regularize(noises):
-    loss = 0
-    for noise in noises:
-        size = noise.shape[2]
-
-        while True:
-            loss = (
-                loss
-                + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
-                + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
-            )
-
-            if size <= 8:
-                break
-
-            noise = noise.reshape([-1, 1, size // 2, 2, size // 2, 2])
-            noise = noise.mean([3, 5])
-            size //= 2
-    return loss
+from torch.utils.data import DataLoader, Dataset
 
 
 def project_onto_l1_ball(x, eps):
@@ -59,10 +36,6 @@ def project_onto_l1_ball(x, eps):
     return x.view(original_shape)
 
 
-def cvt(x):
-    return x.to(device=device, dtype=dtype, memory_format=torch.contiguous_format)
-
-
 def cross(latent):
     if len(latent.shape) == 2:
         return 0
@@ -72,35 +45,33 @@ def cross(latent):
         # X = latent_.view(-1, 1, latent_.shape[1], latent_.shape[2])
         # Y = latent_.view(-1, latent_.shape[1], 1, latent_.shape[2])
         # A = ((X - Y).pow(2).sum(-1) + 1e-9).sqrt()
-        A\
-            = torch.cdist(latent_, latent_, p=2)
+        A = torch.cdist(latent_, latent_, p=2)
         D = torch.sum(torch.triu(A, diagonal=1)) / ((latent_.shape[1] - 1) * latent_.shape[1] / 2)
         DD += D
 
     return DD / latent.shape[0]
 
 
-def noise_normalize_(noises):
-    for noise in noises:
-        mean = noise.mean()
-        std = noise.std()
+class Images(Dataset):
+    def __init__(self, image_list, duplicates):
+        # args.files = [sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[args.img_idx]]
+        self.image_list = image_list
+        self.duplicates = duplicates  # Number of times to duplicate the image in the dataset to produce multiple HR images
 
-        noise.data.add_(-mean).div_(std)
+    def __len__(self):
+        return self.duplicates * len(self.image_list)
+
+    def __getitem__(self, idx):
+        img_path = self.image_list[idx // self.duplicates]
+        image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
+        image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
+        if self.duplicates == 1:
+            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
+        else:
+            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0] + f"_{(idx % self.duplicates) + 1}"
 
 
-def make_image(tensor):
-    return (
-        tensor.detach()
-            .clamp_(min=-1, max=1)
-            .add(1)
-            .div_(2)
-            .mul(255)
-            .type(torch.uint8)
-            .permute(0, 2, 3, 1)
-            .to("cpu")
-            .numpy()
-    )
-
+toPIL = torchvision.transforms.ToPILImage()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -145,9 +116,9 @@ if __name__ == "__main__":
         action="store_false",
         help="allow to use distinct latent codes to each layers",
     )
-    parser.add_argument(
-        "--files", metavar="FILES", nargs="+", help="path to image files to be projected"
-    )
+    # parser.add_argument(
+    #     "--files", metavar="FILES", nargs="+", help="path to image files to be projected"
+    # )
     parser.add_argument('--save_intermediate', action="store_true",
                         help='Whether to store and save intermediate images during optimization')
     parser.add_argument('--lr_schedule', type=str, default='linear1cycledrop',
@@ -156,13 +127,15 @@ if __name__ == "__main__":
     # ---------------------------------------------------
     parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
     parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
-    parser.add_argument("--steps", type=int, default=1000, help="optimize iterations")
+    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
     parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.0005, help='logp regularization')
-    parser.add_argument('--cross', type=float, default=0.5, help='cross regularization')
-    parser.add_argument('--pnorm', type=float, default=0, help='pnorm regularization')
+    parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
+    parser.add_argument('--pnorm', type=float, default=0.01, help='pnorm regularization')
     parser.add_argument("--out_dir", type=str, default="", help="output directory")
     parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
+    parser.add_argument("--batchsize", type=int, default=1, help="batch size")
+    parser.add_argument('--eps', type=float, default=0.05)
     # -------NF params------------------------------------------------------------------
     parser.add_argument(
         '--arch', choices=['icnn', 'icnn2', 'icnn3', 'denseicnn2', 'resicnn2'], type=str, default='icnn2',
@@ -190,36 +163,16 @@ if __name__ == "__main__":
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
 
+
     args = parser.parse_args()
     gpu_num = args.gpu_num
     torch.cuda.set_device(gpu_num)
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-
-    transform = transforms.Compose(
-        [
-            # transforms.Resize(resize),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-        ]
-    )
-
-    imgs, imgs_prior = [], []
-    if args.files is None:
-        args.files = sorted(glob.glob(os.path.join(args.input_dir, '*x.png')))
-    for imgfile in args.files:
-        img = transform(Image.open(imgfile).convert("RGB"))
-        imgs.append(img)
-        img = transform(Image.open(imgfile.split('_')[0] + '_HR.png').convert("RGB"))
-        imgs_prior.append(img)
-        img_ar = make_image(img.unsqueeze(0))
-        pil_img = Image.fromarray(img_ar[0])
-        pil_img.save('input.png')
-
-    imgs = torch.stack(imgs, 0).to(device)
-    imgs_prior = torch.stack(imgs_prior, 0).to(device)
-
+    image_list = sorted(glob.glob(f"input/project/input/*_{args.factor}x.jpg"))[:1000]
+    dataset = Images(image_list, duplicates=1)
+    dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # -------Loading NF model----------------------------------------------------------------------------
     num_blocks = 5
     num_inputs = 512
@@ -254,19 +207,13 @@ if __name__ == "__main__":
     percept = lpips.PerceptualLoss(
         model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
     )
-
-    with torch.no_grad():
-        latent = torch.randn((n_mean_latent, 512), dtype=torch.float32, device=device)
-        latent_out = g_ema.style(latent)
-        latent_mean = latent_out.mean(0)
-        gaussian_fit = {"mean": latent_out.mean(0).to(device), "std": latent_out.std(0).to(device)}
-    duplicate = 0
+    Downsampler = BicubicDownSample(factor=args.factor, device=device)
 
     noises = []  # stores all of the noise tensors
     noise_vars = []  # stores the noise tensors that we want to optimize on
     # num_trainable_noise_layers = g_ema.n_latent
     num_trainable_noise_layers = 0
-    for i in range(g_ema.n_latent):
+    for i in range(g_ema.n_latent - 1):
         # dimension of the ith noise tensor
         res = (1, 1, 2 ** ((i + 1) // 2 + 2), 2 ** ((i + 1) // 2 + 2))
         new_noise = torch.randn(res, dtype=torch.float, device=device)
@@ -276,22 +223,34 @@ if __name__ == "__main__":
         else:
             new_noise.requires_grad = False
         noises.append(new_noise)
-    for duplicate in range(10):
+
+    with torch.no_grad():
+        latent = torch.randn((n_mean_latent, 512), dtype=torch.float32, device=device)
+        latent_out = g_ema.style(latent)
+        latent_mean = latent_out.mean(0)
+        gaussian_fit = {"mean": latent_out.mean(0).to(device), "std": latent_out.std(0).to(device)}
+
+    # torch.manual_seed(0)
+    # torch.cuda.manual_seed(0)
+    # torch.backends.cudnn.deterministic = True
+    for ref_im, ref_im_hr, ref_im_name in dataloader:
+        torch.manual_seed(0)
+        torch.cuda.manual_seed(0)
+        torch.backends.cudnn.deterministic = True
+        # if args.w_plus:
+        #     latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+        #     latent = latent_mean + 0.25 * (latent - latent_mean)
+        #     latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1).detach().clone()
+        # else:
+        #     latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+        #     latent = latent_mean + 0.25 * (latent - latent_mean)
+        #     latent_in = latent.detach().clone()
 
         if args.w_plus:
-            latent = g_ema.style(torch.randn((imgs.shape[0], 512), dtype=torch.float32, device=device))
-            latent = latent_mean + 0.25 * (latent - latent_mean)
-            latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1).detach().clone()
+            latent = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
+            latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
         else:
-            latent = g_ema.style(torch.randn((imgs.shape[0], 512), dtype=torch.float32, device=device))
-            latent = latent_mean + 0.25 * (latent - latent_mean)
-            latent_in = latent.detach().clone()
-
-        # if args.w_plus:
-        #     latent = latent_mean.detach().clone().unsqueeze(0).repeat(imgs.shape[0], 1)
-        #     latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
-        # else:
-        #     latent_in = latent_mean.detach().clone().repeat(imgs.shape[0], 1)
+            latent_in = latent_mean.detach().clone().repeat(args.batchsize, 1)
 
         # latent_mean_ = torch.load('w_nf_plus_o', map_location=map_location)
         # latent_in = latent_mean_.detach().clone()
@@ -302,9 +261,7 @@ if __name__ == "__main__":
             'adam': torch.optim.Adam,
             'adamax': torch.optim.Adamax
         }
-        # latent = latent_in
-        var_list = [latent_in] + noise_vars
-        optimizer = torch.optim.Adam(var_list, lr=args.lr)
+        optimizer = torch.optim.Adam([latent_in] + noise_vars, lr=args.lr)
         # optimizer = SphericalOptimizer(optim.Adam, [latent_in] + noise_vars, lr=args.lr)
         schedule_dict = {
             'fixed': lambda x: 1,
@@ -317,18 +274,16 @@ if __name__ == "__main__":
         schedule_func = schedule_dict[args.lr_schedule]
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule_func)
         pbar = tqdm(range(args.steps))
-        latent_path = []
         start_t = time.time()
         min_loss = np.inf
-
-        Downsampler = BicubicDownSample(factor=args.factor, device=device, normalize=False)
         for i in pbar:
             t = i / args.steps
             optimizer.zero_grad()
             img_gen, _ = g_ema([latent_in], input_is_latent=True, noise=noises)
+            img_gen = (img_gen + 1) / 2
             # #-----NF ---------------------------------------------------------------------------
-            l1_loss = F.l1_loss(Downsampler(img_gen), imgs)
-            mse_loss = F.mse_loss(Downsampler(img_gen), imgs)
+            l1_loss = F.l1_loss(Downsampler(img_gen), ref_im)
+            mse_loss = F.mse_loss(Downsampler(img_gen), ref_im)
             # latent_ = latent_in
             # n_loss = noise_regularize(noises)
             x = latent_in.view(-1, latent_in.size(-1))
@@ -355,11 +310,8 @@ if __name__ == "__main__":
                 best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; cross: {cross_loss:.3f};' \
                                f'logp: {logp_loss: 3f}; pn: {p_norm_loss.item():.3f},'
                 best_im = img_gen.detach().clone()
-                best_im_LR = Downsampler(img_gen)
-                best_latent = latent_in.detach().clone()
-                best_noises = noises
                 best_step = i + 1
-                best_rec = l1_loss
+                best_rec = l1_loss.item()
             if torch.isnan(loss):
                 break
             loss.backward()
@@ -373,11 +325,6 @@ if __name__ == "__main__":
             # a = torch.stack(deviations, 0)
             # var_list[0].data = latent_mean_ + torch.stack(deviations, 0)
 
-            # noise_normalize_(noises)
-
-            if (i + 1) % 100 == 0:
-                latent_path.append(latent_in.detach().clone())
-
             pbar.set_description(
                 (
                     f" L1: {l1_loss.item():.3f};"
@@ -387,38 +334,26 @@ if __name__ == "__main__":
 
                 )
             )
-        if best_rec > 0.1:
-            print("Generated image might not be satisfactory. Try running the PULSE loop again.")
+        if best_rec > args.eps:
+            print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
-            # img_gen, _ = g_ema([best_latent], input_is_latent=True, noise=noises)
-            img_ar = make_image(best_im)
-            perceptual = percept(best_im, imgs_prior).mean()
-            L1_norm = F.l1_loss(best_im, imgs_prior).mean()
-            img_ar_lr = make_image(best_im_LR)
-            # torch.save(best_latent, "w_nff")
-            # torch.save(noises, "w_nff_n")
-            result_file = {}
-            for i, input_name in enumerate(args.files):
-                noise_single = []
-                for noise in noises:
-                    noise_single.append(noise[i: i + 1])
-                result_file[input_name] = {
-                    "img": img_gen[i],
-                    "latent": latent_in[i],
-                    "noise": noise_single,
-                }
+            best_im_LR = Downsampler(best_im)
+            perceptual = percept(best_im, ref_im_hr).mean()
+            L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
+            for i in range(args.batchsize):
+                pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
+                pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
+                # img_name = ref_im_name[i] + f'boost.jpg'
+                # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
+                #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
+                #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
+                img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}.jpg'
+                pil_img.save(f'input/project/{img_name}')
+                pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
+                img_name = f'{ref_im_name[i]}_HR.jpg'
+                pil_img.save(f'input/project/{img_name}')
 
-                # img_name = f'pnorm5_{duplicate}.png'
-                img_name = os.path.splitext(os.path.basename(input_name))[0] + 'lr' + str(args.lr).split('.')[-1] \
-                           + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
-                           + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) \
-                           + 'num' + str(duplicate) + '_n' + str(num_trainable_noise_layers) + '.png'
-                pil_img = Image.fromarray(img_ar[i])
-                pil_img.save(f'input/project{args.out_dir}/{img_name}')
-                # pil_img = Image.fromarray(img_ar_lr[i])
-                # pil_img.save(f'input/project{args.out_dir}/LR_{img_name}')
-                print(f'\n lr {args.lr} logp {args.logp}; cross {args.cross}; p norm {args.pnorm}')
-                print(best_summary)
-                print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())
+            print(best_summary)
+            print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())
