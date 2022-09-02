@@ -27,7 +27,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, default='input/project', help='Input path')
+    parser.add_argument('--input', type=str, default='input/project/respulse', help='Input path')
     parser.add_argument('--crop_border', type=int, default=0, help='Crop border for each side')
     args = parser.parse_args()
     main(args)

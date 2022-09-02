@@ -9,7 +9,7 @@ from PIL import Image
 from glob import glob
 # from data import build_dataset
 from metrics.fid import calculate_fid, extract_inception_features, load_patched_inception_v3
-
+torch.cuda.set_device(0)
 
 class Images(Dataset):
     def __init__(self, image_list, duplicates):
@@ -17,7 +17,7 @@ class Images(Dataset):
         self.image_list = image_list
         self.transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+            torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
         ])
 
     def __len__(self):
@@ -43,7 +43,7 @@ def calculate_fid_folder(args):
     # opt['io_backend'] = dict(type=args.backend)
     # opt['mean'] = [0.5, 0.5, 0.5]
     # opt['std'] = [0.5, 0.5, 0.5]
-    image_list = sorted(glob(f"input/project/*.jpg"))[:100]
+    image_list = sorted(glob(f"input/project/respulse/*.jpg"))
     dataset = Images(image_list, duplicates=1)
     # dataset = build_dataset(opt)
 
@@ -55,7 +55,8 @@ def calculate_fid_folder(args):
         num_workers=args.num_workers,
         sampler=None,
         drop_last=False)
-    args.num_sample = min(args.num_sample, len(dataset))
+    # args.num_sample = min(args.num_sample, len(dataset))
+    args.num_sample = len(dataset)
     total_batch = math.ceil(args.num_sample / args.batch_size)
 
     def data_generator(data_loader, total_batch):
@@ -73,7 +74,9 @@ def calculate_fid_folder(args):
 
     sample_mean = np.mean(features, 0)
     sample_cov = np.cov(features, rowvar=False)
-
+    # stats = {'mean': sample_mean, 'cov': sample_cov}
+    # torch.save(stats, args.fid_stats)
+    # exit(0)
     # load the dataset stats
     stats = torch.load(args.fid_stats)
     real_mean = stats['mean']
@@ -93,9 +96,9 @@ if __name__ == '__main__':
         '--fid_stats',
         type=str,
         help='Path to the dataset fid statistics.',
-        default='experiments/pretrained_models/metric_weights/inception_FFHQ_512.pth')
+        default='metrics/inception_FFHQ_512.pth') # input/project/fid_stats_hr.pth
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--num_sample', type=int, default=3000)
+    parser.add_argument('--num_sample', type=int, default=50000)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--backend', type=str, default='disk', help='io backend for dataset. Option: disk, lmdb')
     args = parser.parse_args()

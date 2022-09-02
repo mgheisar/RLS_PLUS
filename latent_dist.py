@@ -44,7 +44,7 @@ if __name__ == "__main__":
         '--preload-data', action='store_true', default=False,
         help="Preload entire dataset to GPU (if cuda).")
     parser.add_argument('--save', help='directory to save results', type=str,
-                        default='/projects/superres/Marzieh/pytorch-flows/experiments/maf_lr_5')
+                        default='/projects/superres/Marzieh/pytorch-flows/experiments/maf_face1024')
     parser.add_argument('--dimh', type=int, default=4096)  # 64:img
     parser.add_argument('--nhidden', type=int, default=5)  # 4:img
     parser.add_argument("--nblocks", type=int, default=10, help='Number of stacked CPFs.')  # 8-8-8 img
@@ -57,15 +57,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.test_batch_size = args.batch_size
-    size = 128
-    ckpt = "checkpoint/BBBC021/150000.pt"
+    size = 1024
+    ckpt = "checkpoint/stylegan2-ffhq-config-f.pt"
     g_ema = Generator(size, 512, 8).to(device)
     map_location = lambda storage, loc: storage.cuda()
-    gan = torch.load(ckpt, map_location=map_location)
-    g_ema.load_state_dict(gan["g_ema"], strict=False)
+    g_ema.load_state_dict(torch.load(ckpt, map_location=map_location)["g_ema"], strict=False)
     g_ema.eval()
-    del gan
-    torch.cuda.empty_cache()
     # # # -------Loading NF model----------------------------------------------------------------------------
     num_blocks = 5
     num_inputs = 512
@@ -81,7 +78,7 @@ if __name__ == "__main__":
     best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     flow.load_state_dict(best_model_path['model'])
     flow.to(device)
-    with open('wlatent1.pkl', 'rb') as f:
+    with open('wlatent_face1024.pkl', 'rb') as f:
         data = pickle.load(f)
     flow.eval()
     for param in flow.parameters():
@@ -92,6 +89,7 @@ if __name__ == "__main__":
         z_samples = torch.randn((5000, 512), dtype=torch.float32, device=device)
         w_samples = g_ema.style(z_samples)
     p_samples = torch.nn.LeakyReLU(5)(w_samples)
+    p_samples = (p_samples - p_samples.mean(0)) / p_samples.std(0)
     p_samples = p_samples.cpu().numpy()
 
     n_components = 512
@@ -107,62 +105,83 @@ if __name__ == "__main__":
     train_loader = torch.utils.data.DataLoader(
         w_samples, batch_size=args.val_batch_size, shuffle=True)
     for batch_id, x in enumerate(train_loader):  # evalD.x
-        x = torch.nn.LeakyReLU(5)(x)
+        # x = torch.nn.LeakyReLU(5)(x)
         x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
         logp = flow.log_probs(x, None).mean()
         z = flow.forward(x, None, mode='direct')[0]
-        x_rec = flow.forward(z, None, mode='inverse')[0]
         nf_samples.append(z.data.cpu().numpy())
-        logp_.append(logp.cpu().numpy())
     nf_samples = np.vstack(nf_samples)
-    print("log probability: ", np.mean(np.vstack(logp_)))
 
-    np.save('nf_samples_2.npy', nf_samples)
-    nf_samples = np.load('nf_samples_2.npy')
+    np.save('nf_samples.npy', nf_samples)
+    # nf_samples = np.load('nf_samples.npy')
+    z_samples = z_samples.cpu().numpy()
     w_samples = w_samples.cpu().numpy()
-    subset = {"w_space": w_samples, "p_space": p_samples,
-              "pn_space": pn_samples, "nf_space": nf_samples}
-    spaces = ['w_space', 'p_space', 'pn_space', 'nf_space']
+    subset = {"Z": z_samples, "W": w_samples, "Pulse": p_samples,
+              "II2S": pn_samples, "NF": nf_samples}
+    spaces = ['Z', 'W', 'Pulse', 'II2S', 'NF']
     for space in spaces:
         measurements = subset[space]
         a = np.power(np.linalg.norm(measurements, axis=1), 2)
         df = pd.DataFrame({"x": a})
         sns.distplot(df, hist=True, kde=True, label=space)
-    xx = np.arange(0, 1000, 0.1)
-    plt.plot(xx, stats.chi2.pdf(xx, df=512), label="X2(512)")
+        print(space, " median :", np.median(a))
+    # xx = np.arange(0, 1000, 0.1)
+    # plt.plot(xx, stats.chi2.pdf(xx, df=512), label="X2(512)")
     plt.legend()
     plt.xlabel('Squared L2 norm')
-    plt.savefig('chi-squared')
+    plt.savefig('hist_norm')
     plt.show()
-    ind = np.random.choice(range(512), 3, replace=False)
-    print(ind)
-    tt = []
+
+    df = pd.DataFrame({})
     for space in spaces:
         measurements = subset[space]
-        x1 = measurements[:, 505]
-        x2 = measurements[:, 506]
-        x3 = measurements[:, 508]
-        df = pd.DataFrame({"x": x1, "y": x2, "z": x3})
-        pd.plotting.scatter_matrix(df, diagonal='kde')
-        plt.suptitle(space)
-        plt.show()
-        print(f'shapiro x1:{stats.shapiro(x1)[1]}')
-        print(f'shapiro x2:{stats.shapiro(x2)[1]}')
-        print(f'shapiro x3:{stats.shapiro(x3)[1]}')
-        HZResults = multivariate_normality(pd.DataFrame(measurements), alpha=.05)
-        p = np.zeros((512,))
-        for ii in range(512):
-            x1 = measurements[:, ii]
-            stat, p[ii] = stats.shapiro(x1)
-        p_val = np.min(p)
-        print(f'{space} shapiro stat, hz stat: ', np.min(p), HZResults.pval)
-        print('number of shapiro stat > 0.05: ', len(np.where(p > 0.05)[0]))
-        tt.append(np.where(p > 0.05)[0])
+        a = np.power(np.linalg.norm(measurements, axis=1), 2)
+        df[space] = a
+    # fig, ax = plt.subplots(1, 2)
+    sns.boxplot(data=df, orient="h", palette="Set1")
+    plt.xlabel('Squared L2 norm')
+    # sns.boxplot(data=df, orient="h", palette="Set1", ax=ax[1], showfliers=False, )
+    # ax[1].set_xlim(320, 680)
+    plt.savefig('boxplot_norm')
+    plt.show()
 
-    # print('\n -----------------------------------------------------------------')
-    # for i, x in enumerate(tt[3]):
-    #     if len(np.where(tt[2] == x)[0]) == 0:
-    #         if len(np.where(tt[1] == x)[0]) == 0:
-    #             if len(np.where(tt[0] == x)[0]) == 0:
-    #                 print(x)
+    # ind = np.random.choice(range(512), 3, replace=False)
+    # print(ind)
+    # tt = []
+    # spaces = ['II2S']
+    # for space in spaces:
+    #     measurements = subset[space]
+    #     x1 = measurements[:, 506]
+    #     x2 = measurements[:, 508]
+    #     df = pd.DataFrame({"x": x1, "y": x2})
+    #     axes = pd.plotting.scatter_matrix(df, diagonal='kde')
+    #     lim_range = (-7, 7)
+    #     for ax in axes.flat:
+    #         if len(ax.collections) > 0:
+    #             ax.set_xlim(lim_range)
+    #             ax.set_ylim(lim_range)
+    #     plt.suptitle(space)
+    #     plt.show()
+    #     # print(f'shapiro x1:{stats.shapiro(x1)[1]}')
+    #     # print(f'shapiro x2:{stats.shapiro(x2)[1]}')
+    #     # print(f'shapiro x3:{stats.shapiro(x3)[1]}')
+    #     # HZResults = multivariate_normality(pd.DataFrame(measurements), alpha=.05)
+    #     # p = np.zeros((512,))
+    #     # for ii in range(512):
+    #     #     x1 = measurements[:, ii]
+    #     #     stat, p[ii] = stats.shapiro(x1)
+    #     # p_val = np.min(p)
+    #     # print(f'{space} shapiro stat, hz stat: ', np.min(p), HZResults.pval)
+    #     # print('number of shapiro stat > 0.05: ', len(np.where(p > 0.05)[0]))
+    #     # tt.append(np.where(p > 0.05)[0])
+    #
+    #
+    #
+    #
+    # # print('\n -----------------------------------------------------------------')
+    # # for i, x in enumerate(tt[3]):
+    # #     if len(np.where(tt[2] == x)[0]) == 0:
+    # #         if len(np.where(tt[1] == x)[0]) == 0:
+    # #             if len(np.where(tt[0] == x)[0]) == 0:
+    # #                 print(x)
 

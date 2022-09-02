@@ -240,24 +240,14 @@ class AddMotionBlur(object):
 
 class AddBlur(object):
     """
-    A class used to add box and gaussian blur to the input image before it is transformed into a torch tensor
+    A class used to add gaussian blur to the input image before it is transformed into a torch tensor
     """
+    def __init__(self, radius=1.0):
+        self.radius = radius
 
     def __call__(self, x):
-
-        coin_1 = 0.1
-        coin_2 = 0.3
-
-        radius = 3
-
-        if random.random() < coin_1:
-            return x.filter(PIL.ImageFilter.BoxBlur(radius=random.randint(0, radius)))
-
-        elif random.random() < coin_2:
-            return x.filter(PIL.ImageFilter.GaussianBlur(radius=random.randint(0, radius)))
-
-        else:
-            return x
+        radius = 1
+        return x.filter(PIL.ImageFilter.GaussianBlur(radius=radius))
 
 
 class AddOcclusion(object):

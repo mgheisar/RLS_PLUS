@@ -1,5 +1,6 @@
 # # implementation of PULSE with NF Gaussianization
 import os
+from pathlib import Path
 import argparse
 import torchvision
 import pickle
@@ -38,9 +39,9 @@ def get_transforms(augs):
         if 'rotate' in augs:
             transform_list.append(RandomRotation(100, expand=False))
         if 'hflip' in augs:
-            transform_list.append(RandomHorizontalFlip())
+            transform_list.append(RandomHorizontalFlip(p=1))
         if 'vflip' in augs:
-            transform_list.append(RandomVerticalFlip())
+            transform_list.append(RandomVerticalFlip(p=1))
         if 'contrast' in augs:
             transform_list.append(ChangeContrast())
         if 'brightness' in augs:
@@ -56,7 +57,7 @@ def get_transforms(augs):
         if 'defocusblur' in augs:
             transform_list.append(AddDefocusBlur())
         if 'perspective' in augs:
-            transform_list.append(RandomPerspective())
+            transform_list.append(RandomPerspective(p=1))
         if 'colorjitter' in augs:
             transform_list.append(ColorJitter(brightness=0, contrast=0, saturation=2, hue=0.05))
         if 'gray' in augs:
@@ -122,21 +123,23 @@ class Images(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_list[idx // self.duplicates]
         ToPIL = torchvision.transforms.ToPILImage()
-        if 'motionblur' in args.augs or 'gaussianblur' in args.augs or \
-                'defocusblur' in args.augs or 'rotate' in args.augs or 'vflip' in args.augs or 'hflip' in args.augs:
-            image = self.transform(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device('cuda'))
-            # img = toPIL(image.cpu().detach().clamp(0, 1))
-            # img.save(f"{img_path.split('_')[0]}_{args.augs[0]}_hr.jpg")
+        im_name = Path(img_path).stem
+        if args.augs is None:
+            image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
+        elif 'motionblur' in args.augs:
+            image = self.transform(Image.open(img_path.split(f'_{args.factor}')[0] + '.jpg')).to(torch.device('cuda'))
+            img = toPIL(image.cpu().detach().clamp(0, 1))
+            img.save(f"{args.out_dir}/{im_name}_{args.augs[0]}_hr.jpg")
             image = Downsampler(image.unsqueeze(0))[0]
             img = toPIL(image.cpu().detach().clamp(0, 1))
-            img.save(f"{img_path.split('_')[0]}_{args.augs[0]}_lr.jpg")
+            img.save(f"{args.out_dir}/{im_name}_{args.augs[0]}_lr.jpg")
         elif args.augs:
             image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
             img = toPIL(image.cpu().detach().clamp(0, 1))
-            img.save(f"{img_path.split('_')[0]}_{args.augs[0]}_lr.jpg")
-        else:
-            image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
-        image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
+            img.save(f"{args.out_dir}/{im_name}_{args.augs[0]}_lr.jpg")
+        image_hr = []
+        # image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(
+        # torch.device("cuda"))
         if self.duplicates == 1:
             return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
         else:
@@ -195,19 +198,20 @@ if __name__ == "__main__":
                         help='fixed, linear1cycledrop, linear1cycle')
 
     # ---------------------------------------------------
-    parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
+    parser.add_argument("--input_dir", type=str, default="input/project/inputt", help="output directory")
+    parser.add_argument("--out_dir", type=str, default="input/project/inputt/noise", help="output directory")
     parser.add_argument('--factor', type=int, default=32, help='Super resolution factor')
     parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
     parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.0005, help='logp regularization')
-    parser.add_argument('--cross', type=float, default=0.5, help='cross regularization')
-    parser.add_argument('--pnorm', type=float, default=0, help='pnorm regularization')
-    parser.add_argument("--out_dir", type=str, default="", help="output directory")
+    parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
+    parser.add_argument('--pnorm', type=float, default=0.01, help='pnorm regularization')
     parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
     parser.add_argument('--eps', type=float, default=0.5)
     parser.add_argument('--augs', nargs='+', help='which augmentations are used to test robustness',
-                        choices=['rotate', 'vflip', 'hflip', 'contrast', 'brightness', 'noise', 'gaussiannoise', 'occlusion',
+                        choices=['rotate', 'vflip', 'hflip', 'contrast', 'brightness', 'noise', 'gaussiannoise',
+                                 'occlusion',
                                  'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
                                  'perspective', 'gray', 'colorjitter'])
     # -------NF params------------------------------------------------------------------
@@ -237,14 +241,13 @@ if __name__ == "__main__":
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
 
-
     args = parser.parse_args()
     gpu_num = args.gpu_num
     torch.cuda.set_device(gpu_num)
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[:1000]
+    image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:1]
     dataset = Images(image_list, duplicates=1)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # -------Loading NF model----------------------------------------------------------------------------
@@ -414,8 +417,8 @@ if __name__ == "__main__":
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)
-            perceptual = percept(best_im, ref_im_hr).mean()
-            L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
+            # perceptual = percept(best_im, ref_im_hr).mean()
+            # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
             for i in range(args.batchsize):
                 pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
                 pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
@@ -427,11 +430,10 @@ if __name__ == "__main__":
                     img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}.jpg'
                 else:
                     img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}_{args.augs[0]}.jpg'
-                pil_img.save(f'input/project/inputt/noise/{img_name}')
+                pil_img.save(f'{args.out_dir}/{img_name}')
                 # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
                 # img_name = f'{ref_im_name[i]}_HR.jpg'
                 # pil_img.save(f'input/project/inputt/{img_name}')
 
             print(best_summary)
-            print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())
-            exit(0)
+            # print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

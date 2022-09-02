@@ -117,7 +117,7 @@ def niqe(img, mu_pris_param, cov_pris_param, gaussian_window, block_size_h=96, b
                 feat.append(compute_feature(block))
 
         distparam.append(np.array(feat))
-
+        transforms
         if scale == 1:
             img = imresize(img / 255., scale=0.5, antialiasing=True)
             img = img * 255.

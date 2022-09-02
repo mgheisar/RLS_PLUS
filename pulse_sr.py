@@ -34,8 +34,8 @@ def geocross(latent):
         A = ((X - Y).pow(2).sum(-1) + 1e-9).sqrt()
         B = ((X + Y).pow(2).sum(-1) + 1e-9).sqrt()
         D = 2 * torch.atan2(A, B)
-        # D1 = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / 8.).sum()
-        D = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / latent.shape[1]).sum()
+        D = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / 8.).sum()
+        # D = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / latent.shape[1]).sum()
         return D
 
 
@@ -51,7 +51,11 @@ class Images(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_list[idx // self.duplicates]
         image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
-        image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
+
+        hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
+        image_hr = torchvision.transforms.ToTensor()(Image.open(hr_path)).to(torch.device("cuda"))
+        # image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(
+        # torch.device("cuda"))
         if self.duplicates == 1:
             return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
         else:
@@ -82,7 +86,7 @@ if __name__ == "__main__": # run sr_boost script
         default=0.25,
         help="duration of the learning rate decay",
     )
-    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.4, help="learning rate")
     parser.add_argument(
         "--noise", type=float, default=0.05, help="strength of the noise level"
     )
@@ -114,7 +118,7 @@ if __name__ == "__main__": # run sr_boost script
                         help='fixed, linear1cycledrop, linear1cycle')
     parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
     parser.add_argument('--img_idx', type=int, default=2, help='image index')
-    parser.add_argument('--eps', type=float, default=0.05, help='epsilon')
+    parser.add_argument('--eps', type=float, default=10, help='epsilon')
     # -------NF params------------------------------------------------------------------
     parser.add_argument(
         '--arch', choices=['icnn', 'icnn2', 'icnn3', 'denseicnn2', 'resicnn2'], type=str, default='icnn2',
@@ -150,29 +154,29 @@ if __name__ == "__main__": # run sr_boost script
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/input/*_{args.factor}x.jpg"))[:1000]
+    image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:7327]  # 7327:14654
     dataset = Images(image_list, duplicates=1)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
-    # # # -------Loading NF model----------------------------------------------------------------------------
-    num_blocks = 5
-    num_inputs = 512
-    modules = []
-    for _ in range(num_blocks):
-        modules += [
-            fnn.MADE(num_inputs, num_hidden=1024, num_cond_inputs=None, act='relu'),
-            fnn.BatchNormFlow(num_inputs),
-            fnn.Reverse(num_inputs)
-        ]
-    flow = fnn.FlowSequential(*modules)
-    map_location = lambda storage, loc: storage.cuda()
-    best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
-    flow.load_state_dict(best_model_path['model'])
-    flow.to(device)
-    with open('wlatent_face1024.pkl', 'rb') as f:
-        data = pickle.load(f)
-    flow.eval()
-    for param in flow.parameters():
-        param.requires_grad = False
+    # # # # -------Loading NF model----------------------------------------------------------------------------
+    # num_blocks = 5
+    # num_inputs = 512
+    # modules = []
+    # for _ in range(num_blocks):
+    #     modules += [
+    #         fnn.MADE(num_inputs, num_hidden=1024, num_cond_inputs=None, act='relu'),
+    #         fnn.BatchNormFlow(num_inputs),
+    #         fnn.Reverse(num_inputs)
+    #     ]
+    # flow = fnn.FlowSequential(*modules)
+    # map_location = lambda storage, loc: storage.cuda()
+    # best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
+    # flow.load_state_dict(best_model_path['model'])
+    # flow.to(device)
+    # with open('wlatent_face1024.pkl', 'rb') as f:
+    #     data = pickle.load(f)
+    # flow.eval()
+    # for param in flow.parameters():
+    #     param.requires_grad = False
     # ---------------------------------------------------------------------------------------------------
 
     g_ema = Generator(args.size, 512, 8).to(device)
@@ -213,17 +217,17 @@ if __name__ == "__main__": # run sr_boost script
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
         torch.backends.cudnn.deterministic = True
-        # if args.w_plus:
-        #     latent = torch.randn(
-        #         (args.batchsize, g_ema.n_latent, 512), dtype=torch.float32, device=device)
-        # else:
-        #     latent = torch.randn((args.batchsize, 512), dtype=torch.float32, device=device)
-
         if args.w_plus:
-            latent_ = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
-            latent = latent_.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+            latent = torch.randn(
+                (args.batchsize, g_ema.n_latent, 512), dtype=torch.float32, device=device)
         else:
-            latent = latent_mean.detach().clone().repeat(args.batchsize, 1)
+            latent = torch.randn((args.batchsize, 512), dtype=torch.float32, device=device)
+
+        # if args.w_plus:
+        #     latent_ = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
+        #     latent = latent_.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+        # else:
+        #     latent = latent_mean.detach().clone().repeat(args.batchsize, 1)
 
         latent.requires_grad = True
         opt_dict = {
@@ -265,11 +269,11 @@ if __name__ == "__main__": # run sr_boost script
             # logp_loss = -logp
             # a = (torch.ones(1) * math.sqrt(512)).to(device)
             # p_norm_loss = torch.pow(torch.mean(torch.norm(latent_in, dim=-1)) - a, 2)
-            loss = 10 * l1_loss
+            loss = 100 * mse_loss
             cross_loss = 0
             if args.w_plus:
                 cross_loss = geocross(latent)
-                loss += 0.05 * cross_loss
+                loss += 0.05 * cross_loss  # 0.01
             if loss < min_loss:
                 min_loss = loss
                 best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; Cross: {cross_loss:.3f};'
@@ -289,11 +293,11 @@ if __name__ == "__main__": # run sr_boost script
 
                 )
             )
-            if i == args.steps - 1:
-                x = latent_in.view(-1, latent_in.size(-1))
-                x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
-                logp = flow.log_probs(x, None).mean().item()
-                print("logp loss latent_in: ", -logp)
+            # if i == args.steps - 1:
+            #     x = latent_in.view(-1, latent_in.size(-1))
+            #     x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
+            #     logp = flow.log_probs(x, None).mean().item()
+            #     print("logp loss latent_in: ", -logp)
         if best_rec > args.eps:
             print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
@@ -309,9 +313,9 @@ if __name__ == "__main__": # run sr_boost script
                 # torch.save(noises, "w_nfp_n")
                 # img_name = ref_im_name[i] + f'_pulse_.jpg'
                 img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
-                pil_img.save(f'input/project/{img_name}')
-                pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
-                img_name = f'{ref_im_name[i]}_HR.jpg'
-                pil_img.save(f'input/project/{img_name}')
+                pil_img.save(f'input/project/respulse/{img_name}')
+                # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
+                # img_name = f'{ref_im_name[i]}_HR.jpg'
+                # pil_img.save(f'input/project/{img_name}')
             print(best_summary)
             print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())
