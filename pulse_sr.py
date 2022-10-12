@@ -145,7 +145,7 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument('--rtol', type=float, default=0.0)
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
-    parser.add_argument("--gpu_num", type=int, default=2, help="gpu number")
+    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
 
     args = parser.parse_args()
@@ -154,8 +154,8 @@ if __name__ == "__main__": # run sr_boost script
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:7327]  # 7327:14654
-    dataset = Images(image_list, duplicates=1)
+    image_list = sorted(glob.glob(f"input/project/lrr/*_{args.factor}x.jpg"))
+    dataset = Images(image_list, duplicates=10)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # # -------Loading NF model----------------------------------------------------------------------------
     # num_blocks = 5
@@ -209,14 +209,14 @@ if __name__ == "__main__": # run sr_boost script
         latent_mean = torch.nn.LeakyReLU(5)(g_ema.style(latent).mean(0))
         gaussian_fit = {"mean": latent_out.mean(0).to(device), "std": latent_out.std(0).to(device)}
 
-    # torch.manual_seed(0)
-    # torch.cuda.manual_seed(0)
-    # torch.backends.cudnn.deterministic = True
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
 
     for ref_im, ref_im_hr, ref_im_name in dataloader:
-        torch.manual_seed(0)
-        torch.cuda.manual_seed(0)
-        torch.backends.cudnn.deterministic = True
+        # torch.manual_seed(0)
+        # torch.cuda.manual_seed(0)
+        # torch.backends.cudnn.deterministic = True
         if args.w_plus:
             latent = torch.randn(
                 (args.batchsize, g_ema.n_latent, 512), dtype=torch.float32, device=device)
@@ -313,7 +313,7 @@ if __name__ == "__main__": # run sr_boost script
                 # torch.save(noises, "w_nfp_n")
                 # img_name = ref_im_name[i] + f'_pulse_.jpg'
                 img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
-                pil_img.save(f'input/project/respulse/{img_name}')
+                pil_img.save(f'input/project/multipulse/{img_name}')
                 # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
                 # img_name = f'{ref_im_name[i]}_HR.jpg'
                 # pil_img.save(f'input/project/{img_name}')

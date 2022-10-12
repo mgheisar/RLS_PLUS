@@ -10,7 +10,7 @@ from metrics import calculate_niqe
 def main(args):
 
     niqe_all = []
-    imgs = sorted(glob(os.path.join(args.input, '*.jpg')))
+    imgs = sorted(glob(os.path.join(args.input, '*.jpg')))[:2000]
     for i, img_path in enumerate(imgs):
         basename, _ = os.path.splitext(os.path.basename(img_path))
         img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
@@ -27,7 +27,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, default='input/project/respulse', help='Input path')
+    parser.add_argument('--input', type=str, default='input/project/reso', help='Input path')
     parser.add_argument('--crop_border', type=int, default=0, help='Crop border for each side')
     args = parser.parse_args()
     main(args)

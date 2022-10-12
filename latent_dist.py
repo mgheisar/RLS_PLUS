@@ -116,9 +116,9 @@ if __name__ == "__main__":
     # nf_samples = np.load('nf_samples.npy')
     z_samples = z_samples.cpu().numpy()
     w_samples = w_samples.cpu().numpy()
-    subset = {"Z": z_samples, "W": w_samples, "Pulse": p_samples,
-              "II2S": pn_samples, "NF": nf_samples}
-    spaces = ['Z', 'W', 'Pulse', 'II2S', 'NF']
+    subset = {"Z space": z_samples, "W space": w_samples, "PULSE": p_samples,
+              "Ours": nf_samples}
+    spaces = ['Z space', 'W space', 'PULSE', 'Ours']
     for space in spaces:
         measurements = subset[space]
         a = np.power(np.linalg.norm(measurements, axis=1), 2)
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         df[space] = a
     # fig, ax = plt.subplots(1, 2)
     sns.boxplot(data=df, orient="h", palette="Set1")
-    plt.xlabel('Squared L2 norm')
+    plt.xlabel('Squared norm')
     # sns.boxplot(data=df, orient="h", palette="Set1", ax=ax[1], showfliers=False, )
     # ax[1].set_xlim(320, 680)
     plt.savefig('boxplot_norm')

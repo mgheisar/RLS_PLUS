@@ -1,13 +1,11 @@
 # # implementation of PULSE with NF Gaussianization
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 import torchvision
 import pickle
-from SphericalOptimizer import SphericalOptimizer
 import torch
-from torch import optim
 from torch.nn import functional as F
+from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 import lpips
@@ -15,43 +13,62 @@ from model import Generator
 import time
 import numpy as np
 from FLOWS import flows as fnn
-import glob
-import gc
+import math
 from bicubic import BicubicDownSample
-from torch.utils.data import Dataset, DataLoader
-
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
-torch.backends.cudnn.deterministic = True
+import glob
+from torch.utils.data import DataLoader, Dataset
 
 
-def geocross(latent):
-    if (latent.shape[1] == 1):
+def project_onto_l1_ball(x, eps):
+    """
+    See: https://gist.github.com/tonyduan/1329998205d88c566588e57e3e2c0c55
+    """
+    original_shape = x.shape
+    x = x.view(x.shape[0], -1)
+    mask = (torch.norm(x, p=1, dim=1) < eps).float().unsqueeze(1)
+    mu, _ = torch.sort(torch.abs(x), dim=1, descending=True)
+    cumsum = torch.cumsum(mu, dim=1)
+    arange = torch.arange(1, x.shape[1] + 1, device=x.device)
+    rho, _ = torch.max((mu * arange > (cumsum - eps)) * arange, dim=1)
+    theta = (cumsum[torch.arange(x.shape[0]), rho.cpu() - 1] - eps) / rho
+    proj = (torch.abs(x) - theta.unsqueeze(1)).clamp(min=0)
+    x = mask * x + (1 - mask) * proj * torch.sign(x)
+    return x.view(original_shape)
+
+
+def cross(latent):
+    if len(latent.shape) == 2:
         return 0
-    else:
-        X = latent.view(-1, 1, latent.shape[1], latent.shape[2])
-        Y = latent.view(-1, latent.shape[1], 1, latent.shape[2])
-        A = ((X - Y).pow(2).sum(-1) + 1e-9).sqrt()
-        B = ((X + Y).pow(2).sum(-1) + 1e-9).sqrt()
-        D = 2 * torch.atan2(A, B)
-        # D1 = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / 8.).sum()
-        D = ((D.pow(2) * latent.shape[2]).mean((1, 2)) / latent.shape[1]).sum()
-        return D
+    DD = 0
+    for i in range(latent.shape[0]):
+        latent_ = latent[i, :].unsqueeze(0)
+        # X = latent_.view(-1, 1, latent_.shape[1], latent_.shape[2])
+        # Y = latent_.view(-1, latent_.shape[1], 1, latent_.shape[2])
+        # A = ((X - Y).pow(2).sum(-1) + 1e-9).sqrt()
+        A = torch.cdist(latent_, latent_, p=2)
+        D = torch.sum(torch.triu(A, diagonal=1)) / ((latent_.shape[1] - 1) * latent_.shape[1] / 2)
+        DD += D
+
+    return DD / latent.shape[0]
 
 
 class Images(Dataset):
     def __init__(self, image_list, duplicates):
         # args.files = [sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[args.img_idx]]
         self.image_list = image_list
-        self.duplicates = duplicates  # Number of times to duplicate the image in the dataset to produce multiple HR images
+        self.duplicates = duplicates  # Number of times to duplicate the image in the dataset to produce multiple HR
+        self.transform = torchvision.transforms.Compose([transforms.ToTensor()])
+        # , transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     def __len__(self):
         return self.duplicates * len(self.image_list)
 
     def __getitem__(self, idx):
         img_path = self.image_list[idx // self.duplicates]
-        image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
-        image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
+        image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
+        # image_hr = self.transform(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
+        hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
+        image_hr = self.transform(Image.open(hr_path)).to(torch.device("cuda"))
         if self.duplicates == 1:
             return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
         else:
@@ -60,7 +77,7 @@ class Images(Dataset):
 
 toPIL = torchvision.transforms.ToPILImage()
 
-if __name__ == "__main__": # run sr_boost script
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Image projector to the generator latent spaces"
     )
@@ -73,7 +90,7 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument(
         "--lr_rampup",
         type=float,
-        default=0.05,
+        default=0.1,
         help="duration of the learning rate warmup",
     )
     parser.add_argument(
@@ -82,7 +99,6 @@ if __name__ == "__main__": # run sr_boost script
         default=0.25,
         help="duration of the learning rate decay",
     )
-    parser.add_argument("--lr", type=float, default=0.4, help="learning rate")
     parser.add_argument(
         "--noise", type=float, default=0.05, help="strength of the noise level"
     )
@@ -92,7 +108,6 @@ if __name__ == "__main__": # run sr_boost script
         default=0.75,
         help="duration of the noise level decay",
     )
-    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
     parser.add_argument(
         "--noise_regularize",
         type=float,
@@ -106,14 +121,25 @@ if __name__ == "__main__": # run sr_boost script
         help="allow to use distinct latent codes to each layers",
     )
     # parser.add_argument(
-    #     "files", metavar="FILES", nargs="+", help="path to image files to be projected"
+    #     "--files", metavar="FILES", nargs="+", help="path to image files to be projected"
     # )
     parser.add_argument('--save_intermediate', action="store_true",
                         help='Whether to store and save intermediate images during optimization')
     parser.add_argument('--lr_schedule', type=str, default='linear1cycledrop',
                         help='fixed, linear1cycledrop, linear1cycle')
-    parser.add_argument('--factor', type=int, default=8, help='Super resolution factor')
-    parser.add_argument('--img_idx', type=int, default=2, help='image index')
+
+    # ---------------------------------------------------
+    parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
+    parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
+    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
+    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument('--logp', type=float, default=0.001, help='logp regularization')
+    parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
+    parser.add_argument('--pnorm', type=float, default=0.002, help='pnorm regularization')
+    parser.add_argument("--out_dir", type=str, default="", help="output directory")
+    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
+    parser.add_argument("--batchsize", type=int, default=1, help="batch size")
+    parser.add_argument('--eps', type=float, default=0.05)
     # -------NF params------------------------------------------------------------------
     parser.add_argument(
         '--arch', choices=['icnn', 'icnn2', 'icnn3', 'denseicnn2', 'resicnn2'], type=str, default='icnn2',
@@ -124,6 +150,7 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument(
         '--zero-softplus', type=eval, choices=[True, False], default=True,
     )
+
     parser.add_argument(
         '--symm_act_first', type=eval, choices=[True, False], default=False,
     )
@@ -140,8 +167,7 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument('--rtol', type=float, default=0.0)
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
-    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
-    parser.add_argument("--batchsize", type=int, default=1, help="batch size")
+
 
     args = parser.parse_args()
     gpu_num = args.gpu_num
@@ -149,8 +175,8 @@ if __name__ == "__main__": # run sr_boost script
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[:3]
-    dataset = Images(image_list, duplicates=1)
+    image_list = sorted(glob.glob(f"input/project/resLRR/*_{args.factor}x.jpg"))
+    dataset = Images(image_list, duplicates=10)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # -------Loading NF model----------------------------------------------------------------------------
     num_blocks = 5
@@ -178,10 +204,16 @@ if __name__ == "__main__": # run sr_boost script
     map_location = lambda storage, loc: storage.cuda()
     g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
     g_ema.eval()
+
+    # discriminator = Discriminator(args.size).to(device)
+    #
+    # discriminator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d"], strict=False)
+    # discriminator.eval()
     percept = lpips.PerceptualLoss(
         model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
     )
     Downsampler = BicubicDownSample(factor=args.factor, device=device)
+
     noises = []  # stores all of the noise tensors
     noise_vars = []  # stores the noise tensors that we want to optimize on
     # num_trainable_noise_layers = g_ema.n_latent
@@ -198,42 +230,44 @@ if __name__ == "__main__": # run sr_boost script
         noises.append(new_noise)
 
     with torch.no_grad():
-        torch.manual_seed(0)
         latent = torch.randn((n_mean_latent, 512), dtype=torch.float32, device=device)
-        latent_out = torch.nn.LeakyReLU(5)(g_ema.style(latent))
-        latent_mean = torch.nn.LeakyReLU(5)(g_ema.style(latent).mean(0))
+        latent_out = g_ema.style(latent)
+        latent_mean = latent_out.mean(0)
         gaussian_fit = {"mean": latent_out.mean(0).to(device), "std": latent_out.std(0).to(device)}
 
-    best_overall = np.inf
-    # torch.manual_seed(0)
-    # torch.cuda.manual_seed(0)
-    # torch.backends.cudnn.deterministic = True
-
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
     for ref_im, ref_im_hr, ref_im_name in dataloader:
-        torch.manual_seed(0)
-        torch.cuda.manual_seed(0)
-        torch.backends.cudnn.deterministic = True
-        # if args.w_plus:
-        #     latent = torch.randn(
-        #         (args.batchsize, g_ema.n_latent, 512), dtype=torch.float32, device=device)
-        # else:
-        #     latent = torch.randn((args.batchsize, 512), dtype=torch.float32, device=device)
-
+        # torch.manual_seed(0)
+        # torch.cuda.manual_seed(0)
+        # torch.backends.cudnn.deterministic = True
         if args.w_plus:
-            latent_ = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
-            latent = latent_.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+            latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+            latent = latent_mean + 0.6 * (latent - latent_mean)
+            latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1).detach().clone()
         else:
-            latent = latent_mean.detach().clone().repeat(args.batchsize, 1)
+            latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+            latent = latent_mean + 0.6 * (latent - latent_mean)
+            latent_in = latent.detach().clone()
 
-        latent.requires_grad = True
+        # if args.w_plus:
+        #     latent = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
+        #     latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+        # else:
+        #     latent_in = latent_mean.detach().clone().repeat(args.batchsize, 1)
+
+        # latent_mean_ = torch.load('w_nf_plus_o', map_location=map_location)
+        # latent_in = latent_mean_.detach().clone()
+
+        latent_in.requires_grad = True
         opt_dict = {
             'sgd': torch.optim.SGD,
             'adam': torch.optim.Adam,
-            'adamax': torch.optim.Adamax,
+            'adamax': torch.optim.Adamax
         }
-        # latent = latent_in
-        # optimizer = torch.optim.Adam([latent_in] + noise_vars, lr=args.lr)
-        optimizer = SphericalOptimizer(optim.Adam, [latent] + noise_vars, lr=args.lr)
+        optimizer = torch.optim.Adam([latent_in] + noise_vars, lr=args.lr)
+        # optimizer = SphericalOptimizer(optim.Adam, [latent_in] + noise_vars, lr=args.lr)
         schedule_dict = {
             'fixed': lambda x: 1,
             'linear1cycle': lambda x: (9 * (1 - np.abs(x / args.steps - 1 / 2) * 2) + 1) / 10,
@@ -243,59 +277,71 @@ if __name__ == "__main__": # run sr_boost script
                     x - 0.9 * args.steps) / (0.1 * args.steps) * (1 / 1000 - 1 / 10),
         }
         schedule_func = schedule_dict[args.lr_schedule]
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer.opt, schedule_func)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule_func)
         pbar = tqdm(range(args.steps))
         start_t = time.time()
         min_loss = np.inf
         for i in pbar:
             t = i / args.steps
-            optimizer.opt.zero_grad()
-            latent_in = latent
-            latent_in = torch.nn.LeakyReLU(negative_slope=0.2)(latent_in * gaussian_fit["std"] + gaussian_fit["mean"])
+            optimizer.zero_grad()
             img_gen, _ = g_ema([latent_in], input_is_latent=True, noise=noises)
             img_gen = (img_gen + 1) / 2
             # #-----NF ---------------------------------------------------------------------------
-            # p_loss = percept(img_gen, ref_im).mean()
-            mse_loss = F.mse_loss(Downsampler(img_gen), ref_im)
             l1_loss = F.l1_loss(Downsampler(img_gen), ref_im)
-            # # latent_ = latent_in
-            # x = latent_in.view(-1, latent_in.size(-1))
-            # x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
-            # logp = flow.log_probs(x, None).mean()
-            # logp_loss = -logp
-            # a = (torch.ones(1) * math.sqrt(512)).to(device)
-            # p_norm_loss = torch.pow(torch.mean(torch.norm(latent_in, dim=-1)) - a, 2)
-            loss = 10 * l1_loss
+            mse_loss = F.mse_loss(Downsampler(img_gen), ref_im)
+            # latent_ = latent_in
+            # n_loss = noise_regularize(noises)
+            x = latent_in.view(-1, latent_in.size(-1))
+            # x = torch.nn.LeakyReLU(5)(x)
+            x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
+            logp = flow.log_probs(x, None).mean()
+            logp_loss = -logp
+
+            a = (torch.ones(1) * math.sqrt(512)).to(device)
+            x = latent_in.view(-1, latent_in.size(-1))
+            x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
+            x = flow.forward(x, None, mode='direct')[0]
+            p_norm_loss = torch.mean(torch.pow(torch.norm(x, dim=-1) - a, 2))
+
+            # fake_pred = discriminator(img_gen)
+            # adv_loss = F.softplus(-fake_pred).mean()
+            loss = 10 * l1_loss + args.logp * logp_loss + args.pnorm * p_norm_loss
             cross_loss = 0
             if args.w_plus:
-                cross_loss = geocross(latent)
-                loss += 0.05 * cross_loss
+                cross_loss = cross(latent_in)
+                loss += args.cross * cross_loss
             if loss < min_loss:
                 min_loss = loss
-                best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; Cross: {cross_loss:.3f};'
+                best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; cross: {cross_loss:.3f};' \
+                               f'logp: {logp_loss: 3f}; pn: {p_norm_loss.item():.3f},'
                 best_im = img_gen.detach().clone()
+                best_step = i + 1
                 best_rec = l1_loss.item()
+            if torch.isnan(loss):
+                break
             loss.backward()
             optimizer.step()
             scheduler.step()
 
+            # # deviation = project_onto_l1_ball(latent_in - latent_mean_, 100)
+            # # var_list[0].data = latent_mean_ + deviation
+            # # test = torch.norm(deviation, p=1, dim=1)
+            # deviations = [project_onto_l1_ball(lat_in - lat_m, 128) for lat_in, lat_m in zip(latent_in, latent_mean_)]
+            # a = torch.stack(deviations, 0)
+            # var_list[0].data = latent_mean_ + torch.stack(deviations, 0)
+
             pbar.set_description(
                 (
-                    # f"Perc: {p_loss.item():.3f};"
                     f" L1: {l1_loss.item():.3f};"
-                    # f" logp_loss: {logp_loss:.3f};"
+                    f" logp: {logp_loss:.3f};"
                     f" cross: {cross_loss:.3f};"
-                    # f" p_norm_loss: {p_norm_loss.item():.3f},"
+                    f" pn: {p_norm_loss.item():.3f},"
 
                 )
             )
-            if i == args.steps - 1:
-                x = latent_in.view(-1, latent_in.size(-1))
-                x = (x - torch.from_numpy(data["mu"]).to(x)) / torch.from_numpy(data["std"]).to(x)
-                logp = flow.log_probs(x, None).mean().item()
-                print("logp loss latent_in: ", -logp)
-        if best_rec < best_overall:
-            # best_overall = best_rec
+        if best_rec > args.eps:
+            print("Generated image might not be satisfactory. Try running the search loop again.")
+        else:
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)
@@ -304,10 +350,15 @@ if __name__ == "__main__": # run sr_boost script
             for i in range(args.batchsize):
                 pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
                 pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
-                # torch.save(best_latent, "w_nfp")
-                # torch.save(noises, "w_nfp_n")
-                img_name = ref_im_name[i] + f'_pulse.jpg'
-                pil_img.save(f'input/project/{img_name}')
-                # pil_img_lr.save(f'input/project/LR_{img_name}')
+                # img_name = ref_im_name[i] + f'boost.jpg'
+                # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
+                #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
+                #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
+                img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}.jpg'
+                pil_img.save(f'input/project/multi25/{img_name}')
+                # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
+                # img_name = f'{ref_im_name[i]}_HR.jpg'
+                # pil_img.save(f'input/project/multi/{img_name}')
+
             print(best_summary)
             print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

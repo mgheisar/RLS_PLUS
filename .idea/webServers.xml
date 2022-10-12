@@ -9,7 +9,7 @@
           </advancedOptions>
         </fileTransfer>
       </webServer>
-      <webServer id="842a7ec2-0083-4cb3-a5dd-8b9976bcb560" name="kupala">
+      <webServer id="842a7ec2-0083-4cb3-a5dd-8b9976bcb560" name="kupala (project level)">
         <fileTransfer accessType="SFTP" host="kupala" port="22" sshConfigId="6dd225b9-5471-4d53-9e04-e2742f1a5c5c" sshConfig="gheisari@kupala:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />

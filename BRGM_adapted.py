@@ -127,13 +127,13 @@ if __name__ == "__main__":
     # ---------------------------------------------------
     parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
     parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
-    parser.add_argument("--steps", type=int, default=501, help="optimize iterations")
+    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
     parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.0005, help='logp regularization')
     parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
     parser.add_argument('--pnorm', type=float, default=0.01, help='pnorm regularization')
     parser.add_argument("--out_dir", type=str, default="", help="output directory")
-    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
+    parser.add_argument("--gpu_num", type=int, default=2, help="gpu number")
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
     parser.add_argument('--eps', type=float, default=100)
 
@@ -143,11 +143,12 @@ if __name__ == "__main__":
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:7327]  # 7327:14654
+    image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:2000]
     dataset = Images(image_list, duplicates=1)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # ---------------------------------------------------------------------------------------------------
     lambda_pix = 0.001
+    lambda_perc = 10000000
     lambda_perc = 10000000
     lambda_w = 100
     lambda_c = 0.1  # tried many values, this is a good one for in-painting
@@ -274,13 +275,6 @@ if __name__ == "__main__":
             optimizer.step()
             scheduler.step()
 
-            # # deviation = project_onto_l1_ball(latent_in - latent_mean_, 100)
-            # # var_list[0].data = latent_mean_ + deviation
-            # # test = torch.norm(deviation, p=1, dim=1)
-            # deviations = [project_onto_l1_ball(lat_in - lat_m, 128) for lat_in, lat_m in zip(latent_in, latent_mean_)]
-            # a = torch.stack(deviations, 0)
-            # var_list[0].data = latent_mean_ + torch.stack(deviations, 0)
-
             pbar.set_description(
                 (
                     f" L2: {pixelwise_loss.item():.3f};"
@@ -304,11 +298,11 @@ if __name__ == "__main__":
                 # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
                 #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
                 #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
-                img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}.jpg'
+                img_name = f'{ref_im_name[i]}_brgm_{best_rec:.3f}.jpg'
                 pil_img.save(f'input/project/{img_name}')
-                pil_img = toPIL(ref_im_hr[i])
-                img_name = f'{ref_im_name[i]}_HR.jpg'
-                pil_img.save(f'input/project/{img_name}')
+                # pil_img = toPIL(ref_im_hr[i])
+                # img_name = f'{ref_im_name[i]}_HR.jpg'
+                # pil_img.save(f'input/project/resbrgm/{img_name}')
 
             print(best_summary)
             print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

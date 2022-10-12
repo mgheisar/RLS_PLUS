@@ -128,14 +128,20 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-wandb/
-*.lmdb/
+*.lmdb
 *.pkl
 *.pth
 *.pt
 *.png
 *.jpg
 *.jpeg
-*.pkl
 *.mp4
 *.gif
+*.iml
+*.xml
+
+wandb/
+
+
+/lpips/weights/
+/doc/

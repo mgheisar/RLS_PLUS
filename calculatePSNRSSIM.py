@@ -12,8 +12,8 @@ def main(args):
     """
     psnr_all = []
     ssim_all = []
-    img_list_gt = sorted(glob(f"input/project/resHR/*.jpg"))
-    img_list_restored = sorted(glob(f"input/project/respulse/*.jpg"))
+    img_list_gt = sorted(glob(f"input/project/resHR/*.jpg"))[:2000]
+    img_list_restored = sorted(glob(f"input/project/reso/*.jpg"))[:2000]
 
     if args.test_y_channel:
         print('Testing Y channel.')

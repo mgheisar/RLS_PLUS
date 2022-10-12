@@ -9,7 +9,9 @@ from PIL import Image
 from glob import glob
 # from data import build_dataset
 from metrics.fid import calculate_fid, extract_inception_features, load_patched_inception_v3
-torch.cuda.set_device(0)
+torch.cuda.set_device(2)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 class Images(Dataset):
     def __init__(self, image_list, duplicates):
@@ -17,7 +19,7 @@ class Images(Dataset):
         self.image_list = image_list
         self.transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
+            torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
     def __len__(self):
@@ -25,12 +27,11 @@ class Images(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.image_list[idx]
-        image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
+        image = self.transform(Image.open(img_path)).to(device)
         return image, os.path.splitext(os.path.basename(img_path))[0]
 
 
 def calculate_fid_folder(args):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # inception model
     inception = load_patched_inception_v3(device)
@@ -43,7 +44,7 @@ def calculate_fid_folder(args):
     # opt['io_backend'] = dict(type=args.backend)
     # opt['mean'] = [0.5, 0.5, 0.5]
     # opt['std'] = [0.5, 0.5, 0.5]
-    image_list = sorted(glob(f"input/project/respulse/*.jpg"))
+    image_list = sorted(glob(f"input/project/reso/*.jpg"))[:2000]
     dataset = Images(image_list, duplicates=1)
     # dataset = build_dataset(opt)
 
@@ -55,8 +56,7 @@ def calculate_fid_folder(args):
         num_workers=args.num_workers,
         sampler=None,
         drop_last=False)
-    # args.num_sample = min(args.num_sample, len(dataset))
-    args.num_sample = len(dataset)
+    args.num_sample = min(args.num_sample, len(dataset))
     total_batch = math.ceil(args.num_sample / args.batch_size)
 
     def data_generator(data_loader, total_batch):
@@ -74,18 +74,20 @@ def calculate_fid_folder(args):
 
     sample_mean = np.mean(features, 0)
     sample_cov = np.cov(features, rowvar=False)
-    # stats = {'mean': sample_mean, 'cov': sample_cov}
-    # torch.save(stats, args.fid_stats)
-    # exit(0)
-    # load the dataset stats
-    stats = torch.load(args.fid_stats)
+    # # stats = {'mean': sample_mean, 'cov': sample_cov}
+    # # torch.save(stats, "input/project/fid_stats_hr_1024.pth")
+    #
+    stats = torch.load("input/project/fid_stats_hr_1024.pth")
     real_mean = stats['mean']
     real_cov = stats['cov']
-
-    # calculate FID metric
     fid = calculate_fid(sample_mean, sample_cov, real_mean, real_cov)
-    # print(args.restored_folder)
-    print('fid:', fid)
+    print('fid stats hr:', fid)
+
+    stats = torch.load("metrics/inception_FFHQ_1024.pth")
+    real_mean = stats['mean']
+    real_cov = stats['cov']
+    fid = calculate_fid(sample_mean, sample_cov, real_mean, real_cov)
+    print('fid stats(ffhq):', fid)
 
 
 if __name__ == '__main__':
@@ -96,9 +98,9 @@ if __name__ == '__main__':
         '--fid_stats',
         type=str,
         help='Path to the dataset fid statistics.',
-        default='metrics/inception_FFHQ_512.pth') # input/project/fid_stats_hr.pth
+        default='input/project/fid_stats_hr.pth') # input/project/fid_stats_hr.pth
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--num_sample', type=int, default=50000)
+    parser.add_argument('--num_sample', type=int, default=2000)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--backend', type=str, default='disk', help='io backend for dataset. Option: disk, lmdb')
     args = parser.parse_args()

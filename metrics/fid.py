@@ -7,11 +7,12 @@ from tqdm import tqdm
 from metrics.inception import InceptionV3
 
 
-def load_patched_inception_v3(device='cuda', resize_input=True, normalize_input=False):
+def load_patched_inception_v3(device='cuda', resize_input=False, normalize_input=False):
     # we may not resize the input, but in [rosinality/stylegan2-pytorch] it
     # does resize the input.
-    inception = InceptionV3([3], normalize_input=normalize_input, resize_input=resize_input).to(device)
-    inception = nn.DataParallel(inception).eval().to(device)
+    inception = InceptionV3([3], normalize_input=normalize_input, resize_input=resize_input)
+    inception.eval().to(device)
+    # inception = nn.DataParallel(inception).eval().to(device)
     return inception
 
 

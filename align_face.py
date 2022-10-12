@@ -1,9 +1,5 @@
-import numpy as np
-import PIL
-import PIL.Image
-import sys
-import os
-import glob
+import random
+from glob import glob
 import scipy
 import scipy.ndimage
 import dlib
@@ -16,9 +12,9 @@ from shape_predictor import align_face
 
 parser = argparse.ArgumentParser(description='PULSE')
 
-parser.add_argument('-input_dir', type=str, default='input/project/realpics', help='directory with unprocessed images')
-parser.add_argument('-output_dir', type=str, default='input/project/input', help='output directory')
-parser.add_argument('-factor', type=int, default=64, help='scale to downscale the input images to, must be power of 2')
+parser.add_argument('-input_dir', type=str, default='input/project/resHR', help='directory with unprocessed images')
+parser.add_argument('-output_dir', type=str, default='input/project/lrr', help='output directory')
+parser.add_argument('-factor', type=int, default=8, help='scale to downscale the input images to, must be power of 2')
 parser.add_argument('-seed', type=int, help='manual seed to use')
 parser.add_argument('-cache_dir', type=str, default='cache', help='cache directory for model weights')
 
@@ -28,13 +24,17 @@ cache_dir = Path(args.cache_dir)
 cache_dir.mkdir(parents=True, exist_ok=True)
 
 output_dir = Path(args.output_dir)
-output_dir.mkdir(parents=True,exist_ok=True)
+output_dir.mkdir(parents=True, exist_ok=True)
 
 print("Downloading Shape Predictor")
-f=open_url("https://drive.google.com/uc?id=1huhv8PYpNNKbGCLOaYUjOgR1pY5pmbJx", cache_dir=cache_dir, return_path=True)
+f = open_url("https://drive.google.com/uc?id=1huhv8PYpNNKbGCLOaYUjOgR1pY5pmbJx", cache_dir=cache_dir, return_path=True)
 predictor = dlib.shape_predictor(f)
-
-for im in Path(args.input_dir).glob("*.*"):
+# files = glob(f"{Path(args.input_dir)}/*.jpg")
+# random.shuffle(files)
+# files = files[:240]
+files = Path(args.input_dir).glob("*.jpg")
+ii = 0
+for im in files:
     # png = PIL.Image.open(im)
     # png.load()  # required for png.split()
     # background = PIL.Image.new("RGB", png.size, (255, 255, 255))
@@ -42,13 +42,15 @@ for im in Path(args.input_dir).glob("*.*"):
     # background.save('foo.jpg', 'JPEG', quality=1024)
     # exit(0)
     faces = align_face(str(im), predictor, hr_size)
-
     for i,face in enumerate(faces):
-        face.save(Path(args.output_dir) / (im.stem + f"_HR.png"))
+        # face.save(Path(args.output_dir) / (im.stem + f"_HR.jpg"))
         if(args.factor):
             D = BicubicDownSample(factor=args.factor)
             face_tensor = torchvision.transforms.ToTensor()(face).unsqueeze(0).cuda()
             face_tensor_lr = D(face_tensor)[0].cpu().detach().clamp(0, 1)
             face = torchvision.transforms.ToPILImage()(face_tensor_lr)
 
-        face.save(Path(args.output_dir) / (im.stem+f"_{args.factor}x.png"))
+        face.save(Path(args.output_dir) / (im.stem.split('_')[0]+f"_{args.factor}x.jpg"))
+    ii = ii + 1
+    if ii == 50:
+        exit(0)
