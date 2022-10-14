@@ -51,9 +51,9 @@ class Images(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_list[idx // self.duplicates]
         image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
-
-        hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
-        image_hr = torchvision.transforms.ToTensor()(Image.open(hr_path)).to(torch.device("cuda"))
+        image_hr = []
+        # hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
+        # image_hr = torchvision.transforms.ToTensor()(Image.open(hr_path)).to(torch.device("cuda"))
         # image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(
         # torch.device("cuda"))
         if self.duplicates == 1:
@@ -74,6 +74,12 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument(
         "--size", type=int, default=1024, help="output image sizes of the generator"
     )
+    parser.add_argument("--clas", type=int, default=0, help="class label for the generator")
+    parser.add_argument("--input_dir", type=str, default="input/project", help="path to the input image")
+    parser.add_argument("--out_dir", type=str, default="input/project", help="path to the output image")
+    parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
+    parser.add_argument("--gpu_num", type=int, default=0, help="gpu number")
+    parser.add_argument("--duplicate", type=int, default=1, help="number of times to duplicate the image in the dataset")
     parser.add_argument(
         "--lr_rampup",
         type=float,
@@ -116,7 +122,6 @@ if __name__ == "__main__": # run sr_boost script
                         help='Whether to store and save intermediate images during optimization')
     parser.add_argument('--lr_schedule', type=str, default='linear1cycledrop',
                         help='fixed, linear1cycledrop, linear1cycle')
-    parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
     parser.add_argument('--img_idx', type=int, default=2, help='image index')
     parser.add_argument('--eps', type=float, default=10, help='epsilon')
     # -------NF params------------------------------------------------------------------
@@ -145,7 +150,6 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument('--rtol', type=float, default=0.0)
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
-    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
 
     args = parser.parse_args()
@@ -154,8 +158,9 @@ if __name__ == "__main__": # run sr_boost script
     cuda = torch.cuda.is_available()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/lrr/*_{args.factor}x.jpg"))
-    dataset = Images(image_list, duplicates=10)
+    # image_list = sorted(glob.glob(f"input/project/lrr/*_{args.factor}x.jpg"))
+    image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
+    dataset = Images(image_list, duplicates=args.duplicate)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # # -------Loading NF model----------------------------------------------------------------------------
     # num_blocks = 5
@@ -172,7 +177,7 @@ if __name__ == "__main__": # run sr_boost script
     # best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     # flow.load_state_dict(best_model_path['model'])
     # flow.to(device)
-    # with open('wlatent_face1024.pkl', 'rb') as f:
+    # with open(args.nf_stat, 'rb') as f:
     #     data = pickle.load(f)
     # flow.eval()
     # for param in flow.parameters():
@@ -212,11 +217,11 @@ if __name__ == "__main__": # run sr_boost script
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
     torch.backends.cudnn.deterministic = True
-
     for ref_im, ref_im_hr, ref_im_name in dataloader:
-        # torch.manual_seed(0)
-        # torch.cuda.manual_seed(0)
-        # torch.backends.cudnn.deterministic = True
+        if args.duplicate == 1:
+            torch.manual_seed(0)
+            torch.cuda.manual_seed(0)
+            torch.backends.cudnn.deterministic = True
         if args.w_plus:
             latent = torch.randn(
                 (args.batchsize, g_ema.n_latent, 512), dtype=torch.float32, device=device)
@@ -273,7 +278,7 @@ if __name__ == "__main__": # run sr_boost script
             cross_loss = 0
             if args.w_plus:
                 cross_loss = geocross(latent)
-                loss += 0.05 * cross_loss  # 0.01
+                loss += 0.1 * cross_loss  # 0.01
             if loss < min_loss:
                 min_loss = loss
                 best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; Cross: {cross_loss:.3f};'
@@ -304,18 +309,18 @@ if __name__ == "__main__": # run sr_boost script
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)
-            perceptual = percept(best_im, ref_im_hr).mean()
-            L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
+            # perceptual = percept(best_im, ref_im_hr).mean()
+            # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
             for i in range(args.batchsize):
                 pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
                 pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
                 # torch.save(best_latent, "w_nfp")
                 # torch.save(noises, "w_nfp_n")
-                # img_name = ref_im_name[i] + f'_pulse_.jpg'
-                img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
-                pil_img.save(f'input/project/multipulse/{img_name}')
+                # img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
+                img_name = f'{ref_im_name[i]}_1.png'
+                pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
                 # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
                 # img_name = f'{ref_im_name[i]}_HR.jpg'
-                # pil_img.save(f'input/project/{img_name}')
+                # pil_img.save(f'{args.out_dir}/{img_name}')
             print(best_summary)
-            print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())
+            # print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

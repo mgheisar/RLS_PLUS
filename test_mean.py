@@ -193,7 +193,7 @@ if __name__ == "__main__":
     best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     flow.load_state_dict(best_model_path['model'])
     flow.to(device)
-    with open('wlatent_face1024.pkl', 'rb') as f:
+    with open(args.nf_stat, 'rb') as f:
         data = pickle.load(f)
     flow.eval()
     for param in flow.parameters():

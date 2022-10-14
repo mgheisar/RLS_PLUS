@@ -161,6 +161,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--save', help='directory to save results', type=str,
                         default='/projects/superres/Marzieh/pytorch-flows/experiments/maf_face1024')
+    parser.add_argument("--nf_stats", type=str, default='wlatent_face1024.pkl', help='latent data stats')
     parser.add_argument('--dimh', type=int, default=4096)  # 64:img
     parser.add_argument('--nhidden', type=int, default=5)  # 4:img
     parser.add_argument("--nblocks", type=int, default=10, help='Number of stacked CPFs.')  # 8-8-8 img
@@ -194,7 +195,7 @@ if __name__ == "__main__":
     best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     flow.load_state_dict(best_model_path['model'])
     flow.to(device)
-    with open('wlatent_face1024.pkl', 'rb') as f:
+    with open(args.nf_stat, 'rb') as f:
         data = pickle.load(f)
     flow.eval()
     for param in flow.parameters():
