@@ -44,7 +44,7 @@ if __name__ == "__main__":
         '--preload-data', action='store_true', default=False,
         help="Preload entire dataset to GPU (if cuda).")
     parser.add_argument('--save', help='directory to save results', type=str,
-                        default='/projects/superres/Marzieh/pytorch-flows/experiments/maf_face1024')
+                        default='checkpoint/maf_face1024')
     parser.add_argument('--dimh', type=int, default=4096)  # 64:img
     parser.add_argument('--nhidden', type=int, default=5)  # 4:img
     parser.add_argument("--nblocks", type=int, default=10, help='Number of stacked CPFs.')  # 8-8-8 img

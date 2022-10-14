@@ -160,7 +160,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--save', help='directory to save results', type=str,
-                        default='/projects/superres/Marzieh/pytorch-flows/experiments/maf_face1024')
+                        default='checkpoint/maf_face1024')
     parser.add_argument("--nf_stats", type=str, default='wlatent_face1024.pkl', help='latent data stats')
     parser.add_argument('--dimh', type=int, default=4096)  # 64:img
     parser.add_argument('--nhidden', type=int, default=5)  # 4:img
