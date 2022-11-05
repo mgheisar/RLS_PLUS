@@ -1,10 +1,10 @@
-# ##  optimizer over w, g and noise at the same time using anchor point
+# # optimizer g using anchor point
 import os
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 import argparse
 import torchvision
-import lpips
+import pickle
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
@@ -139,10 +139,16 @@ if __name__ == "__main__":
         "--noise", type=float, default=0.05, help="strength of the noise level"
     )
     parser.add_argument(
-        "--space_regularize",
+        "--noise_ramp",
         type=float,
-        default=0.1,
-        help="weight of the sapce regularization",
+        default=0.75,
+        help="duration of the noise level decay",
+    )
+    parser.add_argument(
+        "--noise_regularize",
+        type=float,
+        default=0,
+        help="weight of the noise regularization",
     )
     parser.add_argument("--mse", type=float, default=1, help="weight of the mse loss")
     # parser.add_argument(
@@ -192,7 +198,7 @@ if __name__ == "__main__":
 
     n_mean_latent = 1000000
     if args.clas is None:
-        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:42]
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))
     else:
         image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
     dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
@@ -223,7 +229,7 @@ if __name__ == "__main__":
             latent_mean = latent_out.mean(0)
         noises = []  # stores all of the noise tensors
         noise_vars = []  # stores the noise tensors that we want to optimize on
-        num_trainable_noise_layers = args.num_trainable_noise_layers  # number of noise layers that we want to optimize on
+        num_trainable_noise_layers = 0  # args.num_trainable_noise_layers  # number of noise layers that we want to optimize on
         # num_trainable_noise_layers = 0
         for i in range(g_ema.n_latent - 1):
             # dimension of the ith noise tensor
@@ -257,9 +263,6 @@ if __name__ == "__main__":
             if image_index % args.duplicate == 0:
                 best_latent_multiple = []
         w_anchor = torch.load(f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+').to(device)
-        percept = lpips.PerceptualLoss(model="net-lin", net="alex")
-        # w_anchor_n = torch.load(f'input/project/resSR/test/wnf_{args.factor}/w_nf_{image_id}_10')
-        # w_anchor_n = torch.stack(w_anchor_n).squeeze(1).to(device)
         latent_in = w_anchor.detach().clone()
         latent_in.requires_grad = True
         opt_dict = {
@@ -270,10 +273,9 @@ if __name__ == "__main__":
         from ada.models_utils import toogle_grad
         g_ema = g_ema.float()
         toogle_grad(g_ema, True)
-        var_list = [latent_in] + noise_vars
-        optimizer = torch.optim.Adam(var_list, lr=args.lr)
-        optimizer_g = torch.optim.Adam(g_ema.parameters(), lr=0.0001)
-        # optimizer = SphericalOptimizer(optim.Adam, [latent_in] + noise_vars, lr=args.lr)
+        # var_list = [latent_in] + noise_vars
+        # optimizer = torch.optim.Adam(var_list, lr=args.lr)
+        optimizer_g = torch.optim.Adam(g_ema.parameters(), lr=0.0005)
         schedule_dict = {
             'fixed': lambda x: 1,
             'linear1cycle': lambda x: (9 * (1 - np.abs(x / args.steps - 1 / 2) * 2) + 1) / 10,
@@ -282,58 +284,49 @@ if __name__ == "__main__":
                 x / (0.9 * args.steps) - 1 / 2) * 2) + 1) / 10 if x < 0.9 * args.steps else 1 / 10 + (
                     x - 0.9 * args.steps) / (0.1 * args.steps) * (1 / 1000 - 1 / 10),
         }
-        schedule_func = schedule_dict[args.lr_schedule]
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule_func)
         pbar = tqdm(range(args.steps))
         start_t = time.time()
         min_loss = np.inf
-        # fake_images_anchor, _ = g_ema([w_anchor_n], input_is_latent=True, noise=noises)
-        # fake_images_anchor = fake_images_anchor.detach().clone()
         for i in pbar:
             t = i / args.steps
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
             optimizer_g.zero_grad()
             img_gen, _ = g_ema([latent_in], input_is_latent=True, noise=noises)
-            # generated_images_anchor, _ = g_ema([w_anchor_n], input_is_latent=True, noise=noises)
-            # loss_space = F.mse_loss(generated_images_anchor, fake_images_anchor) + 5 \
-            #              * percept(generated_images_anchor, fake_images_anchor).mean()
             img_gen = (img_gen + 1) / 2
             # #-----NF ---------------------------------------------------------------------------
             l1_loss = F.l1_loss(Downsampler(img_gen), ref_im)
-            n_loss = noise_regularize(noises)
-            loss = 10 * l1_loss  # + args.space_regularize * loss_space  #
+            loss = 10 * l1_loss
             if loss < min_loss:
                 min_loss = loss
-                best_summary = f'L1: {l1_loss.item():.3f}, n loss: {n_loss.item():.3f}'
+                best_summary = f'L1: {l1_loss.item():.3f}'
                 best_im = img_gen.detach().clone()
                 best_latent = latent_in.detach().clone()
                 best_step = i + 1
                 best_rec = l1_loss.item()
-            # if i % 10 == 0:
-            #     im = img_gen.detach().clone()
-            #     pil_img = toPIL(im[0].cpu().detach().clamp(0, 1))
-            #     img_name = f'boost_{ref_im_name}_{i}_d{args.radius}_n{args.num_trainable_noise_layers}_wng.jpg'
-            #     pil_img.save(f'{args.out_dir}/{img_name}')
+            if i % 10 == 0:
+                im = img_gen.detach().clone()
+                pil_img = toPIL(im[0].cpu().detach().clamp(0, 1))
+                img_name = f'boost_{ref_im_name}_{i}_g.jpg'
+                pil_img.save(f'{args.out_dir}/{img_name}')
             if torch.isnan(loss):
                 break
             loss.backward()
-            optimizer.step()
+            # optimizer.step()
             optimizer_g.step()
-            scheduler.step()
 
             noise_normalize_(noises)
-            #  #------ w+= False
             # deviation = project_onto_l1_ball(latent_in - w_anchor, args.radius*np.sqrt(512))  #  2*np.sqrt(512)
             # var_list[0].data = w_anchor + deviation
 
-            #  #------ w+= True
-            deviations = [project_onto_l1_ball(lat_in - lat_m, args.radius*np.sqrt(512))
-                          for lat_in, lat_m in zip(latent_in, w_anchor)]
-            var_list[0].data = w_anchor + torch.stack(deviations, 0)
+            # test = torch.norm(deviation, p=1, dim=1)
+            # deviations = [project_onto_l1_ball(lat_in - lat_m,  args.radius*np.sqrt(512))
+            #               for lat_in, lat_m in zip(latent_in, w_anchor)]
+            # a = torch.stack(deviations, 0)
+            # var_list[0].data = w_anchor + torch.stack(deviations, 0)
 
             pbar.set_description(
                 (
-                    f" L1: {l1_loss.item():.3f}; n loss: {n_loss.item():.3f};"
+                    f" L1: {l1_loss.item():.3f};"
 
                 )
             )
@@ -351,7 +344,7 @@ if __name__ == "__main__":
             #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
             #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
             if args.clas is None:
-                img_name = f'{ref_im_name[i]}_boost_T.jpg'
+                img_name = f'{ref_im_name[i]}_boost.jpg'
                 pil_img.save(f'{args.out_dir}/{img_name}')
             else:
                 img_name = f'{ref_im_name[i]}.png'

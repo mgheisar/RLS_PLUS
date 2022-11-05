@@ -12,9 +12,9 @@ if __name__ == "__main__":
         description="Preparing LR images for PULSE"
     )
     parser.add_argument('--input_dir', type=str, default='input/superres/HR_Golgi', help='input data directory')
-    parser.add_argument('--output_dir', type=str, default='input/superres/LR_Golgi_64x', help='output data directory')
+    parser.add_argument('--output_dir', type=str, default='input/superres/LR_Golgi_32x', help='output data directory')
     parser.add_argument("--size", type=int, default=128, help="output HR image size")
-    parser.add_argument("--scale", type=int, default=64, help="Super resolution scale")
+    parser.add_argument("--scale", type=int, default=32, help="Super resolution scale")
     parser.add_argument("--exp", type=str, default="Golgi", help="face or cells")
     parser.add_argument("--prepare", type=bool, default=False, help="Prepare HR images")
     args = parser.parse_args()
@@ -83,15 +83,34 @@ if __name__ == "__main__":
         print("Preparing LR images")
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        files = Path(args.input_dir).glob("*.png")
+        # files = Path(args.input_dir).glob("*.jpg")
+        import glob
+        image_list = sorted(glob.glob(f"{args.input_dir}/*.jpg"))[:2000]
         ii = 0
-        for im in files:
+        for im in image_list:
             img = Image.open(im)
+            a = Path(im).stem
             width, height = img.size
             if args.scale:
                 D = BicubicDownSample(factor=args.scale)
                 img = transforms.ToTensor()(img).unsqueeze(0).cuda()
                 img_lr = D(img)[0].cpu().detach().clamp(0, 1)
                 img_lr = transforms.ToPILImage()(img_lr)
-            img_lr.save(Path(f"{args.output_dir}") / (im.stem + ".png"))
+            img_lr.save(Path(f"{output_dir}") / (Path(im).stem.split('_')[0] + f"_{args.scale}x.jpg"))
 
+
+# scale = 64
+# # im_vec = [22, 25, 76, 108, 136, 432, 723, 732, 734, 742, 743, 838, 842, 853, 20007]
+# im_vec = [2,6,8,76,723,742,743,732]
+# for ind in im_vec:
+#     im = Path(f"input/project/resHR/{ind:05d}_64x_HR.jpg")
+#     output_dir = f"input/project/lrr/lr_{scale}"
+#     img = Image.open(im)
+#     # img.save(Path(f"{output_dir}") / (im.stem.split('_')[0] + f"_HR.jpg"))
+#     D = BicubicDownSample(factor=scale)
+#     img = transforms.ToTensor()(img).unsqueeze(0).cuda()
+#     img_lr = D(img)[0].cpu().detach().clamp(0, 1)
+#     img_lr = transforms.ToPILImage()(img_lr)
+#     img_lr.save(Path(f"{output_dir}") / (im.stem.split('_')[0] + f"_{scale}x.jpg"))
+#     # pilimg = img_lr.resize((1024, 1024), Image.NEAREST)
+#     # pilimg.save(Path(f"{output_dir}") / (im.stem.split('_')[0] + f"_LR_nn.jpg"))

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # --exp "3" --ds "DMSO" --dt "cytochalasin D_10.0"
 # cytochalasin B_10.0  demecolcine_10.0 staurosporine_0.01 cytochalasin D_10.0
 # demecolcine_10.0
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
@@ -16,14 +16,13 @@ if __name__ == "__main__":
     parser.add_argument("--dt", type=str, help="name of the target domain")
     parser.add_argument('--exp', type=str, default='3', help='experiment name')
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cpu()
     Domains = ['DMSO_656', 'cytochalasin B_0.01', 'cytochalasin D_0.003', 'demecolcine_0.003']
     args.ds = Domains[0]
     args.dt = Domains[3]
     Loss_vec = ["1*L1", "1*L1+0.1*Percept", "1*L1+0.1*Percept+0.1*Adv", "1*L1+0.01*Adv+0.1*Percept"]
     args.loss_str = Loss_vec[2]
-    ds_files = torch.load("Domain_Projection_Prev/500Steps/" + args.ds + args.loss_str + "_500.pt", map_location=map_location)
-    # dt_files = torch.load("Domain_Projection_Prev/500Steps/" + args.dt + args.loss_str + "_500.pt", map_location=map_location)
+    ds_files = torch.load("Domain_Projection_Prev/500Steps/" + args.ds + args.loss_str + "_500.pt", map_location=device)
+    # dt_files = torch.load("Domain_Projection_Prev/500Steps/" + args.dt + args.loss_str + "_500.pt", map_location=device)
     #
     # ds_list = list(ds_files.keys())
     # dt_list = list(dt_files.keys())
@@ -79,9 +78,9 @@ if __name__ == "__main__":
 # # -------------------------------------------------------------
 # All domains together
 args.loss_str = Loss_vec[1]
-dt_files1 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[1] + args.loss_str + "_25.pt", map_location=map_location)
-dt_files2 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[2] + args.loss_str + "_25.pt", map_location=map_location)
-dt_files3 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[3] + args.loss_str + "_25.pt", map_location=map_location)
+dt_files1 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[1] + args.loss_str + "_25.pt", map_location=device)
+dt_files2 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[2] + args.loss_str + "_25.pt", map_location=device)
+dt_files3 = torch.load("Domain_Projection_Prev/25Steps/" + Domains[3] + args.loss_str + "_25.pt", map_location=device)
 n_min = np.min([len(dt_files1), len(dt_files2), len(dt_files3)])
 ds_list = list(ds_files.keys())
 dt_list1 = list(dt_files1.keys())

@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from torchvision import utils
 
 torch.cuda.set_device(0)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 torch.backends.cudnn.deterministic = True
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--dt", type=str, default="demecolcine_10.0", help="name of the target domain")
 
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cpu()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     Loss_vec = ["1*L1", "1*L1+0.1*Percept", "1*L1+0.1*Percept+0.1*Adv", "1*L1+1*Percept+0.1*Adv"]
     # args.loss_str = Loss_vec[2]
     # latent_dir = "Domain_Projection_Prev/500Steps_/"
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     dt_files = torch.load(latent_dir + args.dt + args.loss_str + ".pt", map_location=map_location)
 
     g = Generator(args.size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     g.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
     g.eval()
     discriminator = Discriminator(args.size).to(device)

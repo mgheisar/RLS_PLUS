@@ -16,7 +16,7 @@ np.random.seed(0)
 # cytochalasin B_10.0  demecolcine_10.0 staurosporine_0.01 cytochalasin D_10.0
 # demecolcine_10.0
 
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
     parser = argparse.ArgumentParser(description="Computing PCA on latent vectors of DS and DT")
@@ -24,7 +24,6 @@ if __name__ == "__main__":
     parser.add_argument("--dt", type=str, help="name of the target domain")
     parser.add_argument('--exp', type=str, default='3', help='experiment name')
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cpu()
     # Domains = ['DMSO_656', 'cytochalasin B_10.0', 'cytochalasin D_3.0', 'demecolcine_10.0']
     # Domains = ['DMSO_656', 'cytochalasin B_0.01', 'cytochalasin D_0.003', 'demecolcine_0.003']
     Domains = ['DMSO_656', 'demecolcine_0.003', 'demecolcine_0.01', 'demecolcine_0.03', 'demecolcine_10.0',
@@ -39,10 +38,10 @@ if __name__ == "__main__":
     visualization = True
     args.loss_str = Loss_vec[2]
 
-    ds_files = torch.load(latent_dir + args.ds + args.loss_str + ".pt", map_location=map_location)
+    ds_files = torch.load(latent_dir + args.ds + args.loss_str + ".pt", map_location=device)
     dt_files = []
     for i in range(len(Domains) - 1):
-        dt_files.append(torch.load(latent_dir + Domains[i + 1] + args.loss_str + ".pt", map_location=map_location))
+        dt_files.append(torch.load(latent_dir + Domains[i + 1] + args.loss_str + ".pt", map_location=device))
     n_min = np.min([len(dt) for dt in dt_files])
 
     ds_list = list(ds_files.keys())

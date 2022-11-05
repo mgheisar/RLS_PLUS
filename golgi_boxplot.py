@@ -12,8 +12,8 @@ def load_file(filename):
         f.readline()
         for line in f:
             name, count, area, avg_area, p, mean = line.split(',')
-            if not count == 'NaN':
-                x.append(float(count))
+            if not area == 'NaN':
+                x.append(float(area))
     return x
 
 
@@ -23,10 +23,11 @@ def load_file(filename):
 @click.command()
 @click.argument('data', nargs=-1)
 def main(data):
+    root = 'summary'
     fig1, ax1 = plt.subplots()
     series = []
     for d in data:
-        data = load_file(d)
+        data = load_file(os.path.join(root, d))
         series.append(data)
         # sns.distplot(df, hist=True, kde=True, label=d.split('/')[-1])
     # plt.boxplot(series, showfliers=False)

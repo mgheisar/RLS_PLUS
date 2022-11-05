@@ -18,7 +18,7 @@ torch.cuda.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 torch.cuda.set_device(0)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 if __name__ == "__main__":
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     size = 1024
     ckpt = "checkpoint/stylegan2-ffhq-config-f.pt"
     g_ema = Generator(size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     g_ema.load_state_dict(torch.load(ckpt, map_location=map_location)["g_ema"], strict=False)
     g_ema.eval()
     # # # -------Loading NF model----------------------------------------------------------------------------
@@ -74,7 +74,7 @@ if __name__ == "__main__":
             fnn.Reverse(num_inputs)
         ]
     flow = fnn.FlowSequential(*modules)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     flow.load_state_dict(best_model_path['model'])
     flow.to(device)

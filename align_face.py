@@ -13,8 +13,8 @@ from shape_predictor import align_face
 parser = argparse.ArgumentParser(description='PULSE')
 
 parser.add_argument('-input_dir', type=str, default='input/project/resHR', help='directory with unprocessed images')
-parser.add_argument('-output_dir', type=str, default='input/project/lrr', help='output directory')
-parser.add_argument('-factor', type=int, default=8, help='scale to downscale the input images to, must be power of 2')
+parser.add_argument('-output_dir', type=str, default='input/project/resLR32x', help='output directory')
+parser.add_argument('-factor', type=int, default=32, help='scale to downscale the input images to, must be power of 2')
 parser.add_argument('-seed', type=int, help='manual seed to use')
 parser.add_argument('-cache_dir', type=str, default='cache', help='cache directory for model weights')
 
@@ -52,5 +52,5 @@ for im in files:
 
         face.save(Path(args.output_dir) / (im.stem.split('_')[0]+f"_{args.factor}x.jpg"))
     ii = ii + 1
-    if ii == 50:
+    if ii == 1020:
         exit(0)

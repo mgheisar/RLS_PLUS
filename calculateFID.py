@@ -9,7 +9,7 @@ from PIL import Image
 from glob import glob
 # from data import build_dataset
 from metrics.fid import calculate_fid, extract_inception_features, load_patched_inception_v3
-torch.cuda.set_device(2)
+# torch.cuda.set_device(1)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -44,7 +44,9 @@ def calculate_fid_folder(args):
     # opt['io_backend'] = dict(type=args.backend)
     # opt['mean'] = [0.5, 0.5, 0.5]
     # opt['std'] = [0.5, 0.5, 0.5]
-    image_list = sorted(glob(f"input/project/reso/*.jpg"))[:2000]
+    image_list = sorted(glob(f"{args.input_dir}/*.jpg"))
+    args.num_sample = min(args.num_sample, len(image_list))
+    image_list = image_list[:args.num_sample]
     dataset = Images(image_list, duplicates=1)
     # dataset = build_dataset(opt)
 
@@ -56,7 +58,6 @@ def calculate_fid_folder(args):
         num_workers=args.num_workers,
         sampler=None,
         drop_last=False)
-    args.num_sample = min(args.num_sample, len(dataset))
     total_batch = math.ceil(args.num_sample / args.batch_size)
 
     def data_generator(data_loader, total_batch):
@@ -69,7 +70,6 @@ def calculate_fid_folder(args):
     features = extract_inception_features(data_generator(data_loader, total_batch), inception, total_batch, device)
     features = features.numpy()
     total_len = features.shape[0]
-    features = features[:args.num_sample]
     print(f'Extracted {total_len} features, use the first {features.shape[0]} features to calculate stats.')
 
     sample_mean = np.mean(features, 0)
@@ -99,6 +99,7 @@ if __name__ == '__main__':
         type=str,
         help='Path to the dataset fid statistics.',
         default='input/project/fid_stats_hr.pth') # input/project/fid_stats_hr.pth
+    parser.add_argument('--input_dir', type=str, help='Path to the dataset.', default='input/project/reso')
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--num_sample', type=int, default=2000)
     parser.add_argument('--num_workers', type=int, default=0)

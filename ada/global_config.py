@@ -1,17 +1,20 @@
 ## Device
-cuda_visible_devices = '2'
-device = 'cuda:2'
+cuda_visible_devices = '3'
+device = 'cuda:3'
 
 ## Logs
 training_step = 1
 image_rec_result_log_snapshot = 100
 pivotal_training_steps = 10
 model_snapshot_interval = 400
-
+factor = 32
+max_pti_steps = 41
+max_images_to_invert = 8
+pti_learning_rate = 0.001  # 3e-4
 ## Run name to be updated during PTI
 run_name = ''
 size = 1024
-stylegan_ckpt = "checkpoint/stylegan2-ffhq-config-f.pt"
+stylegan_ckpt = "checkpoint/stylegan2-ffhq-config-f_.pt"
 
 # ## Pretrained models paths
 # e4e = './pretrained_models/e4e_ffhq_encode.pt'
@@ -47,8 +50,6 @@ pti_results_keyword = 'PTI'
 lpips_type = 'alex'
 first_inv_type = 'w'
 optim_type = 'adam'
-factor = 8
-max_pti_steps = 120
 batch_size = 1
 
 ## Locality regularization
@@ -66,10 +67,8 @@ pt_lpips_lambda = 1
 ## Steps
 LPIPS_value_threshold = 0.06
 first_inv_steps = 450
-max_images_to_invert = 30
 
 ## Optimization
-pti_learning_rate = 3e-4
 first_inv_lr = 5e-3
 train_batch_size = 1
 use_last_w_pivots = False

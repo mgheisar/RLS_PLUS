@@ -7,7 +7,7 @@ from model import Generator
 for seed in range(4, 5):
     torch.manual_seed(seed)
     torch.cuda.set_device(0)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if __name__ == "__main__":
         torch.set_grad_enabled(False)
 
@@ -31,7 +31,7 @@ for seed in range(4, 5):
         args = parser.parse_args()
         num_direction = 25
         eigvec = torch.load(args.factor)["eigvec"].to(device)
-        map_location = lambda storage, loc: storage.cuda()
+        map_location = device
         ckpt = torch.load(args.ckpt, map_location=map_location)
         g = Generator(args.size, 512, 8).to(device)
         g.load_state_dict(ckpt["g_ema"], strict=False)

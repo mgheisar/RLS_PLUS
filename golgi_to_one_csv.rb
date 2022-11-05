@@ -6,7 +6,7 @@ columns = {'Count': 1,
 column = 3
 base = 'summary/'
 
-files = %w{HR0.csv SR_PULSE0.csv HR1.csv SR_PULSE1.csv}
+files = %w{HR0.csv PULSE_16x0.csv HR1.csv PULSE_16x1.csv}
 names = %w{HR_DMSO SR_DMSO HR_Nocodazole SR_Nocodazole}
 
 files.each_with_index { |fname, idx|

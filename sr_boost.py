@@ -1,14 +1,13 @@
 # # implementation of PULSE with NF Gaussianization
 import os
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 import argparse
 import torchvision
 import pickle
 import torch
 from torch.nn import functional as F
-from torchvision import transforms
-from PIL import Image
 from tqdm import tqdm
-import lpips
 from model import Generator
 import time
 import numpy as np
@@ -16,7 +15,13 @@ from FLOWS import flows as fnn
 import math
 from bicubic import BicubicDownSample
 import glob
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
+from data_utils import Images
+
+torch.manual_seed(0)
+torch.cuda.manual_seed(0)
+torch.backends.cudnn.deterministic = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def project_onto_l1_ball(x, eps):
@@ -28,7 +33,7 @@ def project_onto_l1_ball(x, eps):
     mask = (torch.norm(x, p=1, dim=1) < eps).float().unsqueeze(1)
     mu, _ = torch.sort(torch.abs(x), dim=1, descending=True)
     cumsum = torch.cumsum(mu, dim=1)
-    arange = torch.arange(1, x.shape[1] + 1, device=x.device)
+    arange = torch.arange(1, x.shape[1] + 1, device=device)
     rho, _ = torch.max((mu * arange > (cumsum - eps)) * arange, dim=1)
     theta = (cumsum[torch.arange(x.shape[0]), rho.cpu() - 1] - eps) / rho
     proj = (torch.abs(x) - theta.unsqueeze(1)).clamp(min=0)
@@ -52,30 +57,6 @@ def cross(latent):
     return DD / latent.shape[0]
 
 
-class Images(Dataset):
-    def __init__(self, image_list, duplicates):
-        # args.files = [sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[args.img_idx]]
-        self.image_list = image_list
-        self.duplicates = duplicates  # Number of times to duplicate the image in the dataset to produce multiple HR
-        self.transform = torchvision.transforms.Compose([transforms.ToTensor()])
-        # , transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-    def __len__(self):
-        return self.duplicates * len(self.image_list)
-
-    def __getitem__(self, idx):
-        img_path = self.image_list[idx // self.duplicates]
-        image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
-        # image_hr = self.transform(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(torch.device("cuda"))
-        # hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
-        hr_path = 'input/project/resHR/00001_64x_HR.jpg'
-        image_hr = self.transform(Image.open(hr_path)).to(torch.device("cuda"))
-        if self.duplicates == 1:
-            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
-        else:
-            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0] + f"_{(idx % self.duplicates) + 1}"
-
-
 toPIL = torchvision.transforms.ToPILImage()
 
 if __name__ == "__main__":
@@ -88,6 +69,28 @@ if __name__ == "__main__":
     parser.add_argument(
         "--size", type=int, default=1024, help="output image sizes of the generator"
     )
+    parser.add_argument("--clas", type=int, default=None, help="class label for the generator")
+    parser.add_argument("--input_dir", type=str, default="input/project/lrr/lrrrr", help="path to the input image")
+    parser.add_argument("--out_dir", type=str, default="input/project/resSR/test", help="path to the output image")
+    parser.add_argument('--factor', type=int, default=16, help='Super resolution factor')
+    parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
+    parser.add_argument("--duplicate", type=int, default=1, help='number of duplications')
+    parser.add_argument('--augs', default=None, nargs='+', help='which augmentations are used to test robustness',
+                        choices=['rotate', 'vflip', 'hflip', 'contrast', 'brightness', 'gaussiannoise',
+                                 'occlusion',
+                                 'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
+                                 'perspective', 'gray', 'colorjitter'])
+
+    # ---------------------------------------------------
+    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
+    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument('--logp', type=float, default=0.002, help='logp regularization')  # 0.001
+    parser.add_argument('--pnorm', type=float, default=0.004, help='pnorm regularization')  # 0.002
+    parser.add_argument('--cross', type=float, default=0.5, help='cross regularization')
+    parser.add_argument("--w_plus", action="store_false", help="allow to use distinct latent codes to each layers")
+    parser.add_argument("--batchsize", type=int, default=1, help="batch size")
+    parser.add_argument('--eps', type=float, default=0.5)
+    # ---------------------------------------------------
     parser.add_argument(
         "--lr_rampup",
         type=float,
@@ -116,11 +119,6 @@ if __name__ == "__main__":
         help="weight of the noise regularization",
     )
     parser.add_argument("--mse", type=float, default=1, help="weight of the mse loss")
-    parser.add_argument(
-        "--w_plus",
-        action="store_false",
-        help="allow to use distinct latent codes to each layers",
-    )
     # parser.add_argument(
     #     "--files", metavar="FILES", nargs="+", help="path to image files to be projected"
     # )
@@ -128,19 +126,6 @@ if __name__ == "__main__":
                         help='Whether to store and save intermediate images during optimization')
     parser.add_argument('--lr_schedule', type=str, default='linear1cycledrop',
                         help='fixed, linear1cycledrop, linear1cycle')
-
-    # ---------------------------------------------------
-    parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
-    parser.add_argument('--factor', type=int, default=8, help='Super resolution factor')
-    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
-    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
-    parser.add_argument('--logp', type=float, default=0.001, help='logp regularization')
-    parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
-    parser.add_argument('--pnorm', type=float, default=0.002, help='pnorm regularization')
-    parser.add_argument("--out_dir", type=str, default="", help="output directory")
-    parser.add_argument("--gpu_num", type=int, default=2, help="gpu number")
-    parser.add_argument("--batchsize", type=int, default=1, help="batch size")
-    parser.add_argument('--eps', type=float, default=0.5)
     # -------NF params------------------------------------------------------------------
     parser.add_argument(
         '--arch', choices=['icnn', 'icnn2', 'icnn3', 'denseicnn2', 'resicnn2'], type=str, default='icnn2',
@@ -161,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--save', help='directory to save results', type=str,
                         default='checkpoint/maf_face1024')
-    parser.add_argument("--nf_stats", type=str, default='wlatent_face1024.pkl', help='latent data stats')
+    parser.add_argument("--nf_stat", type=str, default='wlatent_face1024.pkl', help='latent data stats')
     parser.add_argument('--dimh', type=int, default=4096)  # 64:img
     parser.add_argument('--nhidden', type=int, default=5)  # 4:img
     parser.add_argument("--nblocks", type=int, default=10, help='Number of stacked CPFs.')  # 8-8-8 img
@@ -170,15 +155,21 @@ if __name__ == "__main__":
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
 
-
     args = parser.parse_args()
-    gpu_num = args.gpu_num
-    torch.cuda.set_device(gpu_num)
-    cuda = torch.cuda.is_available()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if args.augs is not None:
+        args.out_dir = os.path.join(args.out_dir, args.augs[0])
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+    # gpu_num = args.gpu_num
+    # torch.cuda.set_device(gpu_num)
+    # cuda = torch.cuda.is_available()
+
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/lrr/*_{args.factor}x.jpg"))
-    dataset = Images(image_list, duplicates=1)
+    if args.clas is None:
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:42]
+    else:
+        image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
+    dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # -------Loading NF model----------------------------------------------------------------------------
     num_blocks = 5
@@ -191,8 +182,7 @@ if __name__ == "__main__":
             fnn.Reverse(num_inputs)
         ]
     flow = fnn.FlowSequential(*modules)
-    map_location = lambda storage, loc: storage.cuda()
-    best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
+    best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=device)
     flow.load_state_dict(best_model_path['model'])
     flow.to(device)
     with open(args.nf_stat, 'rb') as f:
@@ -203,18 +193,17 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------------------------------
 
     g_ema = Generator(args.size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
-    g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
+    g_ema.load_state_dict(torch.load(args.ckpt, map_location=device)["g_ema"], strict=False)
     g_ema.eval()
 
     # discriminator = Discriminator(args.size).to(device)
     #
-    # discriminator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d"], strict=False)
+    # discriminator.load_state_dict(torch.load(args.ckpt, map_location=device)["d"], strict=False)
     # discriminator.eval()
-    percept = lpips.PerceptualLoss(
-        model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
-    )
-    Downsampler = BicubicDownSample(factor=args.factor, device=device)
+    # percept = lpips.PerceptualLoss(
+    #     model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
+    # )
+    Downsampler = BicubicDownSample(factor=args.factor)
 
     noises = []  # stores all of the noise tensors
     noise_vars = []  # stores the noise tensors that we want to optimize on
@@ -235,32 +224,35 @@ if __name__ == "__main__":
         latent = torch.randn((n_mean_latent, 512), dtype=torch.float32, device=device)
         latent_out = g_ema.style(latent)
         latent_mean = latent_out.mean(0)
-        gaussian_fit = {"mean": latent_out.mean(0).to(device), "std": latent_out.std(0).to(device)}
 
-    # torch.manual_seed(0)
-    # torch.cuda.manual_seed(0)
-    # torch.backends.cudnn.deterministic = True
-    image_id = 0
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
+    image_index = 0
     for ref_im, ref_im_hr, ref_im_name in dataloader:
-        torch.manual_seed(0)
-        torch.cuda.manual_seed(0)
-        torch.backends.cudnn.deterministic = True
-        # if args.w_plus:
-        #     latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
-        #     latent = latent_mean + 0.25 * (latent - latent_mean)
-        #     latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1).detach().clone()
-        # else:
-        #     latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
-        #     latent = latent_mean + 0.25 * (latent - latent_mean)
-        #     latent_in = latent.detach().clone()
-
-        if args.w_plus:
-            latent = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
-            latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+        image_id = ref_im_name[0].split("_")[0]
+        if args.duplicate == 1:
+            torch.manual_seed(0)
+            torch.cuda.manual_seed(0)
+            torch.backends.cudnn.deterministic = True
+            if args.w_plus:
+                latent = latent_mean.detach().clone().unsqueeze(0).repeat(args.batchsize, 1)
+                latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+            else:
+                latent_in = latent_mean.detach().clone().repeat(args.batchsize, 1)
         else:
-            latent_in = latent_mean.detach().clone().repeat(args.batchsize, 1)
+            if args.w_plus:
+                latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+                latent = latent_mean + 0.2 * (latent - latent_mean)  # 0.4
+                latent_in = latent.unsqueeze(1).repeat(1, g_ema.n_latent, 1).detach().clone()
+            else:
+                latent = g_ema.style(torch.randn((args.batchsize, 512), dtype=torch.float32, device=device))
+                latent = latent_mean + 0.2 * (latent - latent_mean)  # 0.4
+                latent_in = latent.detach().clone()
+            if image_index % args.duplicate == 0:
+                best_latent_multiple = []
 
-        # latent_mean_ = torch.load('w_nf_plus_o', map_location=map_location)
+        # latent_mean_ = torch.load('w_nf_plus_o', map_location=device)
         # latent_in = latent_mean_.detach().clone()
 
         latent_in.requires_grad = True
@@ -346,8 +338,15 @@ if __name__ == "__main__":
         if best_rec > args.eps:
             print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
-            torch.save(best_latent, f'w_nf_{image_id}')
-            image_id += 1
+            if args.duplicate == 1:
+                torch.save(best_latent, f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+')
+            else:
+                best_latent_multiple.append(best_latent)
+                image_index += 1
+                if image_index % args.duplicate == 0:
+                    torch.save(best_latent_multiple, f'input/project/resSR/test/wnf_{args.factor}/'
+                                                     f'w_nf_{image_id}_{args.duplicate}+')
+
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)
@@ -360,8 +359,12 @@ if __name__ == "__main__":
                 # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
                 #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
                 #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
-                img_name = f'{ref_im_name[i]}_boost_l1_{best_rec:.3f}.jpg'
-                pil_img.save(f'input/project/{img_name}')
+                if args.clas is None:
+                    img_name = f'{ref_im_name[i]}_T.jpg'
+                    pil_img.save(f'{args.out_dir}/{img_name}')
+                else:
+                    img_name = f'{ref_im_name[i]}.png'
+                    pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
                 # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
                 # img_name = f'{ref_im_name[i]}_HR.jpg'
                 # pil_img.save(f'input/project/{img_name}')

@@ -11,7 +11,7 @@ from model import Generator
 #            'cytochalasin B_10.0', 'cytochalasin D_0.003', 'cytochalasin D_0.01',
 #            'cytochalasin D_0.3', 'cytochalasin D_3.0', 'staurosporine_0.003']
 torch.cuda.set_device(1)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 torch.backends.cudnn.deterministic = True
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     parser.add_argument("--degree", type=float, default=1, help="scalar factors for moving latent vectors along mean")
 
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     Loss_vec = ["1*L1", "1*L1+0.1*Percept", "1*L1+0.1*Percept+0.1*Adv", "1*L1+1*Percept+0.1*Adv"]
     # args.loss_str = Loss_vec[2]
     # latent_dir = "Domain_Projection_Prev/500Steps_/"

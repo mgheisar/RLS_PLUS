@@ -17,7 +17,7 @@ def log_image_from_w(w, G, name):
 
 def log_images_from_w(ws, G, names):
     for name, w in zip(names, ws):
-        w = w.to(global_config.device)
+        w = w.to(device)
         log_image_from_w(w, G, name)
 
 

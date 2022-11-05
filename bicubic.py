@@ -17,10 +17,9 @@ class BicubicDownSample(nn.Module):
         else:
             return 0.0
 
-    def __init__(self, factor=4, cuda=True, padding='reflect', device='cuda:0'):
+    def __init__(self, factor=4, cuda=True, padding='reflect'):
         super().__init__()
         self.factor = factor
-        self.device = device
         size = factor * 4
         k = torch.tensor([self.bicubic_kernel((i - torch.floor(torch.tensor(size / 2)) + 0.5) / factor)
                           for i in range(size)], dtype=torch.float32)
@@ -29,7 +28,7 @@ class BicubicDownSample(nn.Module):
         k1 = torch.reshape(k, shape=(1, 1, size, 1))
         self.k1 = torch.cat([k1, k1, k1], dim=0)
         k2 = torch.reshape(k, shape=(1, 1, 1, size))
-        self.k2 = torch.cat([k2, k2, k2], dim=0).to(self.device)
+        self.k2 = torch.cat([k2, k2, k2], dim=0)
         self.cuda = '.cuda' if cuda else ''
         self.padding = padding
         for param in self.parameters():
@@ -43,8 +42,8 @@ class BicubicDownSample(nn.Module):
 
         pad_along_height = max(filter_height - stride, 0)
         pad_along_width = max(filter_width - stride, 0)
-        filters1 = self.k1.to(torch.float).to(self.device)
-        filters2 = self.k2.to(torch.float).to(self.device)
+        filters1 = self.k1.type('torch{}.FloatTensor'.format(self.cuda))
+        filters2 = self.k2.type('torch{}.FloatTensor'.format(self.cuda))
 
         # compute actual padding values for each side
         pad_top = pad_along_height // 2
@@ -71,7 +70,7 @@ class BicubicDownSample(nn.Module):
         if nhwc:
             x = torch.transpose(torch.transpose(x, 1, 3), 1, 2)
         if byte_output:
-            return x.type('torch.ByteTensor').to(self.device)
+            x.type('torch.ByteTensor'.format(self.cuda))
         else:
             return x
 

@@ -4,7 +4,7 @@ import torch
 from torch.autograd import Variable
 from pdb import set_trace as st
 from IPython import embed
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class BaseModel():
     def __init__(self):
         pass;
@@ -45,7 +45,7 @@ class BaseModel():
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         print('Loading network from %s'%save_path)
-        map_location = lambda storage, loc: storage.cuda()
+        map_location = device
         network.load_state_dict(torch.load(save_path, map_location=map_location))
 
     def update_learning_rate():

@@ -5,7 +5,7 @@ import torch
 # DMSO: "checkpoint/BlueBubble/150000.pt" --out "factor_BlueBubble.pt"
 # "checkpoint/BlueBubbleDMSO/400000.pt" --out "factor_BlueBubbleDMSO.pt"
 torch.cuda.set_device(0)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extract factor/eigenvectors of latent spaces using closed form factorization"
@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", type=str, default="checkpoint/BBBC021/150000.pt", help="name of the model checkpoint")
 
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     ckpt = torch.load(args.ckpt, map_location=map_location)
     modulate = {
         k: v

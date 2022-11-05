@@ -131,7 +131,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=128, help="batch size")
     args = parser.parse_args()
     torch.cuda.set_device(args.gpu_num)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     n_mean_latent = 10000
 
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     files = sorted(glob.glob(os.path.join(args.files, '*.png')))
     batch_size = args.batch_size
     g_ema = Generator(args.size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
     g_ema.eval()
 

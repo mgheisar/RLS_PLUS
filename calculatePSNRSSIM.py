@@ -12,17 +12,20 @@ def main(args):
     """
     psnr_all = []
     ssim_all = []
-    img_list_gt = sorted(glob(f"input/project/resHR/*.jpg"))[:2000]
-    img_list_restored = sorted(glob(f"input/project/reso/*.jpg"))[:2000]
+    # img_list_gt = sorted(glob(f"{args.gt}/*.jpg"))[:args.num_samples]
+    img_list_restored = sorted(glob(f"{args.restored}/*.jpg"))[:args.num_samples]
 
     if args.test_y_channel:
         print('Testing Y channel.')
     else:
         print('Testing RGB channels.')
 
-    for i, img_path in enumerate(img_list_gt):
+    for i, img_path in enumerate(img_list_restored):
         basename, ext = osp.splitext(osp.basename(img_path))
-        img_gt = cv2.imread(img_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
+
+        gt_path = osp.join(args.gt, basename.split('_')[0] + '_64x_HR' + ext)
+        img_gt = cv2.imread(gt_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
+        # img_gt = cv2.imread(img_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
         if args.suffix == '':
             img_path_restored = img_list_restored[i]
         else:
@@ -66,6 +69,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--gt', type=str, default='datasets/val_set14/Set14', help='Path to gt (Ground-Truth)')
     parser.add_argument('--restored', type=str, default='results/Set14', help='Path to restored images')
+    parser.add_argument('--num_samples', type=int, default=2000, help='Number of samples to calculate PSNR and SSIM')
     parser.add_argument('--crop_border', type=int, default=0, help='Crop border for each side')
     parser.add_argument('--suffix', type=str, default='', help='Suffix for restored images')
     parser.add_argument(

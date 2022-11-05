@@ -10,7 +10,8 @@ W_DIRECTORY = "w_samples_train_face.pt"
 gpu_num = 2
 torch.cuda.set_device(gpu_num)
 cuda = torch.cuda.is_available()
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class realism(object):
     def __init__(self, args):
@@ -22,7 +23,7 @@ class realism(object):
         self.k = 10
 
         # g_ema = Generator(128, 512, 8).cuda()
-        # map_location = lambda storage, loc: storage.cuda()
+        # map_location = device
         # g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
         # g_ema.eval()
         # latent = torch.randn((10000, 512), dtype=torch.float32).cuda()
@@ -35,7 +36,7 @@ class realism(object):
         # load data using vgg16
         # extractor = feature_extractor(self.args)
         # generated_features, real_features, generated_img_paths = extractor.extract()
-        map_location = lambda storage, loc: storage.cuda()
+        map_location = device
         w_samples = torch.load(root+W_DIRECTORY, map_location=map_location)
         w_invs = torch.load(Winv_DIRECTORY, map_location=map_location)
         w_invs = w_invs.squeeze(0)

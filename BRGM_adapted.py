@@ -141,7 +141,7 @@ if __name__ == "__main__":
     gpu_num = args.gpu_num
     torch.cuda.set_device(gpu_num)
     cuda = torch.cuda.is_available()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_mean_latent = 1000000
     image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:2000]
     dataset = Images(image_list, duplicates=1)
@@ -153,18 +153,17 @@ if __name__ == "__main__":
     lambda_w = 100
     lambda_c = 0.1  # tried many values, this is a good one for in-painting
     g_ema = Generator(args.size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
-    g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
+    g_ema.load_state_dict(torch.load(args.ckpt, map_location=device)["g_ema"], strict=False)
     g_ema.eval()
 
     # discriminator = Discriminator(args.size).to(device)
     #
-    # discriminator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d"], strict=False)
+    # discriminator.load_state_dict(torch.load(args.ckpt, map_location=device)["d"], strict=False)
     # discriminator.eval()
     percept = lpips.PerceptualLoss(
         model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
     )
-    # Downsampler = BicubicDownSample(factor=args.factor, device=device)
+    # Downsampler = BicubicDownSample(factor=args.factor)
     Downsampler = ForwardDownsample(factor=1/args.factor)
 
     noises = []  # stores all of the noise tensors
@@ -216,7 +215,7 @@ if __name__ == "__main__":
         else:
             latent_in = latent_mean.detach().clone().repeat(args.batchsize, 1)
 
-        # latent_mean_ = torch.load('w_nf_plus_o', map_location=map_location)
+        # latent_mean_ = torch.load('w_nf_plus_o', map_location=device)
         # latent_in = latent_mean_.detach().clone()
 
         latent_in.requires_grad = True

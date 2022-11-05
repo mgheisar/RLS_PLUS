@@ -11,6 +11,7 @@ from torchvision import transforms
 # from projector import w_projector
 from ada import global_config
 from ada.models_utils import toogle_grad, load_old_G
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class BaseCoach:
@@ -28,7 +29,7 @@ class BaseCoach:
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
 
         # Initialize loss
-        # self.lpips_loss = LPIPS(net=hyperparameters.lpips_type).to(global_config.device).eval()
+        # self.lpips_loss = LPIPS(net=hyperparameters.lpips_type).to(device).eval()
 
         self.restart_training()
 
@@ -39,9 +40,9 @@ class BaseCoach:
     def restart_training(self):
 
         # Initialize networks
-        self.G = load_old_G()
+        self.G, _ = load_old_G()
         toogle_grad(self.G, True)
-        self.original_G = load_old_G()
+        self.original_G, self.D = load_old_G()
         # self.space_regulizer = Space_Regulizer(self.original_G, self.lpips_loss)
         self.optimizer = self.configure_optimizers()
 
@@ -58,7 +59,7 @@ class BaseCoach:
             w_pivot = self.calc_inversions(image, image_name)
             torch.save(w_pivot, f'{embedding_dir}/0.pt')
 
-        w_pivot = w_pivot.to(global_config.device)
+        w_pivot = w_pivot.to(device)
         return w_pivot
 
     def load_inversions(self, w_path_dir, image_name):
@@ -71,14 +72,14 @@ class BaseCoach:
             w_potential_path = f'{w_path_dir}/{global_config.pti_results_keyword}/{image_name}/0.pt'
         if not os.path.isfile(w_potential_path):
             return None
-        w = torch.load(w_potential_path).to(global_config.device)
+        w = torch.load(w_potential_path).to(device)
         self.w_pivots[image_name] = w
         return w
 
     def calc_inversions(self, image, image_name):
-        id_image = torch.squeeze((image.to(global_config.device) + 1) / 2) * 255
+        id_image = torch.squeeze((image.to(device) + 1) / 2) * 255
         w = id_image
-        # w = w_projector.project(self.G, id_image, device=torch.device(global_config.device), w_avg_samples=600,
+        # w = w_projector.project(self.G, id_image, device=torch.device(device), w_avg_samples=600,
         #                         num_steps=global_config.first_inv_steps, w_name=image_name,
         #                         use_wandb=self.use_wandb)
 
@@ -112,9 +113,12 @@ class BaseCoach:
         #     ball_holder_loss_val = self.space_regulizer.space_regulizer_loss(new_G, w_batch, use_wandb=self.use_wandb)
         #     loss += ball_holder_loss_val
 
-        return loss, l2_loss_val  #, loss_lpips
+        return loss, l2_loss_val  # , loss_lpips
 
     def forward(self, w):
         # generated_images = self.G.synthesis(w, noise_mode='const', force_fp32=True)
-        generated_images, _ = self.G([w], input_is_latent=True)
+        generated_images, _ = self.G([w], input_is_latent=True, randomize_noise=False)
         return generated_images
+
+    def discriminator_forward(self, generated_images):
+        return self.D(generated_images)

@@ -439,7 +439,7 @@ if __name__ == "__main__":
     torch.cuda.set_device(args.gpu_num)
     # print(torch.cuda.current_device())
     # cuda = True if torch.cuda.is_available() else False
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.distributed = False
     # n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     # args.distributed = n_gpu > 1
@@ -497,7 +497,7 @@ if __name__ == "__main__":
 
         except ValueError:
             pass
-        map_location = lambda storage, loc: storage.cuda()
+        map_location = device
         generator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g"], strict=False)
         discriminator.load_state_dict(torch.load(args.ckpt, map_location=map_location)["d"], strict=False)
         g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)

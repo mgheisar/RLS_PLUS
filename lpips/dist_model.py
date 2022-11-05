@@ -20,6 +20,8 @@ from IPython import embed
 
 from . import networks_basic as networks
 import lpips as util
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class DistModel(BaseModel):
     def name(self):
@@ -70,7 +72,7 @@ class DistModel(BaseModel):
 
             if(not is_train):
                 # print('Loading model from: %s'%model_path)
-                map_location = lambda storage, loc: storage.cuda()
+                map_location = device
                 self.net.load_state_dict(torch.load(model_path, **kw, map_location=map_location), strict=False)
 
         elif(self.model=='net'): # pretrained network

@@ -6,24 +6,23 @@ import PIL.ImageFile
 import torch
 from PIL import Image, ImageDraw
 from scipy.signal import convolve2d
-from skimage.draw import circle, line
+# from skimage.draw import circle, line
 from PIL import ImageFilter
 from skimage.util import random_noise
 
 
-class AddNoise(object):
-    """
-    A class used to add noise to the torch tensor containing the input image
-    """
-
-    def __call__(self, x):
-        l1 = 0.000001
-        l2 = 0.002
-        level = random.uniform(l1, l2)
-        noise = torch.randn(*(x.size())) * level
-
-        return x + noise
-
+# class AddNoise(object):
+#     """
+#     A class used to add noise to the torch tensor containing the input image
+#     """
+#
+#     def __call__(self, x):
+#         l1 = 0.000001
+#         l2 = 0.002
+#         level = random.uniform(l1, l2)
+#         noise = torch.randn(*(x.size())) * level
+#
+#         return x + noise
 
 class AddGaussianNoise(object):
     def __init__(self, mean=0, sigma=0.1):
@@ -31,68 +30,69 @@ class AddGaussianNoise(object):
         self.mean = mean
 
     def __call__(self, tensor):
+        torch.manual_seed(0)
         return tensor + torch.randn(tensor.size()).to(tensor.device) * self.sigma + self.mean
 
 
 # based on https://github.com/lospooky/pyblur/blob/master/pyblur/DefocusBlur.py
-class AddDefocusBlur(object):
-    """
-    A class used to simulate defocus blur added to the input image before it is transformed into a torch tensor
-    """
-
-    def __init__(self):
-        self.defocusKernelDims = [3, 5, 7, 9]
-        self.coin = 0.3
-
-    def __call__(self, x):
-
-        if random.random() < self.coin:
-            kernelidx = random.randint(0, len(self.defocusKernelDims) - 1)
-            kerneldim = self.defocusKernelDims[kernelidx]
-
-            return self.DefocusBlur(x, kerneldim)
-        return x
-
-    def DefocusBlur(self, img, dim):
-        imgarray = np.array(img, dtype="float32")
-        kernel = self.DiskKernel(dim)
-
-        if imgarray.ndim == 3 and imgarray.shape[-1] == 3:
-            convolved = np.stack([convolve2d(imgarray[..., channel_id],
-                                             kernel, mode='same',
-                                             fillvalue=255.0).astype("uint8")
-                                  for channel_id in range(3)], axis=2)
-        else:
-            convolved = convolve2d(imgarray, kernel, mode='same', fillvalue=255.0).astype("uint8")
-
-        img = Image.fromarray(convolved)
-
-        return img
-
-    def DiskKernel(self, dim):
-        kernelwidth = dim
-        kernel = np.zeros((kernelwidth, kernelwidth), dtype=np.float32)
-        circleCenterCoord = dim / 2
-        circleRadius = circleCenterCoord + 1
-
-        rr, cc = circle(circleCenterCoord, circleCenterCoord, circleRadius)
-        kernel[rr - 1, cc - 1] = 1
-
-        if (dim == 3 or dim == 5):
-            kernel = self.Adjust(kernel, dim)
-
-        normalizationFactor = np.count_nonzero(kernel)
-        kernel = kernel / normalizationFactor
-
-        return kernel
-
-    def Adjust(self, kernel, kernelwidth):
-        kernel[0, 0] = 0
-        kernel[0, kernelwidth - 1] = 0
-        kernel[kernelwidth - 1, 0] = 0
-        kernel[kernelwidth - 1, kernelwidth - 1] = 0
-
-        return kernel
+# class AddDefocusBlur(object):
+#     """
+#     A class used to simulate defocus blur added to the input image before it is transformed into a torch tensor
+#     """
+#
+#     def __init__(self):
+#         self.defocusKernelDims = [3, 5, 7, 9]
+#         self.coin = 0.3
+#
+#     def __call__(self, x):
+#
+#         if random.random() < self.coin:
+#             kernelidx = random.randint(0, len(self.defocusKernelDims) - 1)
+#             kerneldim = self.defocusKernelDims[kernelidx]
+#
+#             return self.DefocusBlur(x, kerneldim)
+#         return x
+#
+#     def DefocusBlur(self, img, dim):
+#         imgarray = np.array(img, dtype="float32")
+#         kernel = self.DiskKernel(dim)
+#
+#         if imgarray.ndim == 3 and imgarray.shape[-1] == 3:
+#             convolved = np.stack([convolve2d(imgarray[..., channel_id],
+#                                              kernel, mode='same',
+#                                              fillvalue=255.0).astype("uint8")
+#                                   for channel_id in range(3)], axis=2)
+#         else:
+#             convolved = convolve2d(imgarray, kernel, mode='same', fillvalue=255.0).astype("uint8")
+#
+#         img = Image.fromarray(convolved)
+#
+#         return img
+#
+#     def DiskKernel(self, dim):
+#         kernelwidth = dim
+#         kernel = np.zeros((kernelwidth, kernelwidth), dtype=np.float32)
+#         circleCenterCoord = dim / 2
+#         circleRadius = circleCenterCoord + 1
+#
+#         rr, cc = circle(circleCenterCoord, circleCenterCoord, circleRadius)
+#         kernel[rr - 1, cc - 1] = 1
+#
+#         if (dim == 3 or dim == 5):
+#             kernel = self.Adjust(kernel, dim)
+#
+#         normalizationFactor = np.count_nonzero(kernel)
+#         kernel = kernel / normalizationFactor
+#
+#         return kernel
+#
+#     def Adjust(self, kernel, kernelwidth):
+#         kernel[0, 0] = 0
+#         kernel[0, kernelwidth - 1] = 0
+#         kernel[kernelwidth - 1, 0] = 0
+#         kernel[kernelwidth - 1, kernelwidth - 1] = 0
+#
+#         return kernel
 
 
 class GaussianBlur(object):
@@ -113,7 +113,7 @@ class SaltAndPepperNoise(object):
         self.d = d
 
     def __call__(self, x):
-        x = torch.tensor(random_noise(x, mode='salt', amount=self.d))
+        x = torch.tensor(random_noise(x, mode='salt', amount=self.d, seed=0))
         return x
 
 
@@ -127,23 +127,23 @@ class AddMotionBlur(object):
         self.lineLengths = length  # [3, 5, 7]
         self.lineTypes = "full"  # ["full", "right", "left"]
         self.lineDict = LineDictionary()
-        self.coin = 1  # 0.3
+        self.coin = 0.3
 
     def __call__(self, x):
 
-        if random.random() < self.coin:
-
-            # lineLengthIdx = random.randint(0, len(self.lineLengths) - 1)
-            # lineTypeIdx = random.randint(0, len(self.lineTypes) - 1)
-            # lineLength = self.lineLengths[lineLengthIdx]
-            # lineType = self.lineTypes[lineTypeIdx]
-            lineLength = self.lineLengths
-            lineType = self.lineTypes
-            lineAngle = self.randomAngle(lineLength)
-
-            return self.LinearMotionBlur(x, lineLength, lineAngle, lineType)
-        else:
-            return x
+        # if random.random() < self.coin:
+        #     lineLengthIdx = random.randint(0, len(self.lineLengths) - 1)
+        #     lineTypeIdx = random.randint(0, len(self.lineTypes) - 1)
+        #     lineLength = self.lineLengths[lineLengthIdx]
+        #     lineType = self.lineTypes[lineTypeIdx]
+        #     lineAngle = self.randomAngle(lineLength)
+        #     return self.LinearMotionBlur(x, lineLength, lineAngle, lineType)
+        # else:
+        #     return x
+        lineLength = self.lineLengths
+        lineType = self.lineTypes
+        lineAngle = self.randomAngle(lineLength)
+        return self.LinearMotionBlur(x, lineLength, lineAngle, lineType)
 
     def LinearMotionBlur(self, img, dim, angle, linetype):
         imgarray = np.array(img, dtype="float32")
@@ -232,7 +232,7 @@ class AddMotionBlur(object):
         top_idx = len(validLineAngles) - 1
         if top_idx < 0:
             top_idx = 0
-
+        random.seed(0)
         angleIdx = random.randint(0, top_idx)
 
         return int(validLineAngles[angleIdx])
@@ -246,8 +246,7 @@ class AddBlur(object):
         self.radius = radius
 
     def __call__(self, x):
-        radius = 1
-        return x.filter(PIL.ImageFilter.GaussianBlur(radius=radius))
+        return x.filter(PIL.ImageFilter.GaussianBlur(radius=self.radius))
 
 
 class AddOcclusion(object):
@@ -283,7 +282,7 @@ class ChangeContrast(object):
     """
 
     def __call__(self, x):
-        level = random.randint(1, 256)
+        level = 64  # random.randint(1, 256)
         factor = (259 * (level + 255)) / (255 * (259 - level))
 
         def contrast(c):
@@ -300,7 +299,7 @@ class ChangeBrightness(object):
     def __call__(self, x):
         l1 = 0
         l2 = 2
-        level = random.uniform(l1, l2)
+        level = 1  # random.uniform(l1, l2)
         enhancer = PIL.ImageEnhance.Brightness(x)
         return enhancer.enhance(level)
 

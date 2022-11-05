@@ -8,6 +8,8 @@ from tqdm import tqdm
 import lpips
 from model import Generator
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def normalize(x):
     return x / torch.sqrt(x.pow(2).sum(-1, keepdim=True))
@@ -71,7 +73,7 @@ if __name__ == "__main__":
     ckpt = torch.load(args.ckpt)
 
     g = Generator(args.size, latent_dim, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     g.load_state_dict(torch.load(ckpt, map_location=map_location)["g_ema"], strict=False)
     # g.load_state_dict(ckpt["g_ema"])
     g.eval()

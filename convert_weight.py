@@ -214,10 +214,10 @@ if __name__ == "__main__":
         help="path to the offical StyleGAN2 repository with dnnlib/ folder",
     )
     parser.add_argument(
-        "--gen", action="store_true", help="convert the generator weights"
+        "--gen", action="store_false", help="convert the generator weights"
     )
     parser.add_argument(
-        "--disc", action="store_true", help="convert the discriminator weights"
+        "--disc", action="store_false", help="convert the discriminator weights"
     )
     parser.add_argument(
         "--channel_multiplier",
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         default=2,
         help="channel multiplier factor. config-f = 2, else = 1",
     )
-    parser.add_argument("--path", type=str, default="stylegan2-ffhq-config-f.pkl", help="path to the tensorflow weights")
+    parser.add_argument("--path", type=str, default="checkpoint/stylegan2-ffhq-config-f.pkl", help="path to the tensorflow weights")
 
     args = parser.parse_args()
 
@@ -270,7 +270,7 @@ if __name__ == "__main__":
         ckpt["d"] = d_state
 
     name = os.path.splitext(os.path.basename(args.path))[0]
-    torch.save(ckpt, name + ".pt")
+    torch.save(ckpt, name + "_.pt")
 
     batch_size = {256: 16, 512: 9, 1024: 4}
     n_sample = batch_size.get(size, 25)

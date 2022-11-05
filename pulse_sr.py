@@ -1,24 +1,23 @@
 # # implementation of PULSE with NF Gaussianization
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import argparse
 import torchvision
-import pickle
 from SphericalOptimizer import SphericalOptimizer
 import torch
 from torch import optim
 from torch.nn import functional as F
-from PIL import Image
 from tqdm import tqdm
 import lpips
 from model import Generator
 import time
 import numpy as np
-from FLOWS import flows as fnn
 import glob
 import gc
 from bicubic import BicubicDownSample
 from torch.utils.data import Dataset, DataLoader
+from data_utils import Images
 
 torch.manual_seed(0)
 torch.cuda.manual_seed(0)
@@ -39,29 +38,6 @@ def geocross(latent):
         return D
 
 
-class Images(Dataset):
-    def __init__(self, image_list, duplicates):
-        # args.files = [sorted(glob.glob(f"input/project/inputt/*_{args.factor}x.jpg"))[args.img_idx]]
-        self.image_list = image_list
-        self.duplicates = duplicates  # Number of times to duplicate the image in the dataset to produce multiple HR images
-
-    def __len__(self):
-        return self.duplicates * len(self.image_list)
-
-    def __getitem__(self, idx):
-        img_path = self.image_list[idx // self.duplicates]
-        image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
-        image_hr = []
-        # hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
-        # image_hr = torchvision.transforms.ToTensor()(Image.open(hr_path)).to(torch.device("cuda"))
-        # image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(
-        # torch.device("cuda"))
-        if self.duplicates == 1:
-            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
-        else:
-            return image, image_hr, os.path.splitext(os.path.basename(img_path))[0] + f"_{(idx % self.duplicates) + 1}"
-
-
 toPIL = torchvision.transforms.ToPILImage()
 
 if __name__ == "__main__": # run sr_boost script
@@ -74,12 +50,18 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument(
         "--size", type=int, default=1024, help="output image sizes of the generator"
     )
-    parser.add_argument("--clas", type=int, default=0, help="class label for the generator")
+    parser.add_argument("--clas", type=int, default=None, help="class label for the generator")
     parser.add_argument("--input_dir", type=str, default="input/project", help="path to the input image")
     parser.add_argument("--out_dir", type=str, default="input/project", help="path to the output image")
     parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
     parser.add_argument("--gpu_num", type=int, default=0, help="gpu number")
     parser.add_argument("--duplicate", type=int, default=1, help="number of times to duplicate the image in the dataset")
+    parser.add_argument('--augs', default=None, nargs='+',
+                        help='which augmentations are used to test robustness',
+                        choices=['rotate', 'vflip', 'hflip', 'contrast', 'brightness', 'noise', 'gaussiannoise',
+                                 'occlusion',
+                                 'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
+                                 'perspective', 'gray', 'colorjitter'])
     parser.add_argument(
         "--lr_rampup",
         type=float,
@@ -153,14 +135,20 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
 
     args = parser.parse_args()
-    gpu_num = args.gpu_num
-    torch.cuda.set_device(gpu_num)
+    if args.augs is not None:
+        args.out_dir = os.path.join(args.out_dir, args.augs)
+        if not os.path.exists(args.out_dir):
+            os.makedirs(args.out_dir)
+    # gpu_num = args.gpu_num
+    # torch.cuda.set_device(gpu_num)
     cuda = torch.cuda.is_available()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_mean_latent = 1000000
-    # image_list = sorted(glob.glob(f"input/project/lrr/*_{args.factor}x.jpg"))
-    image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
-    dataset = Images(image_list, duplicates=args.duplicate)
+    if args.clas is None:
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))
+    else:
+        image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
+    dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # # # # -------Loading NF model----------------------------------------------------------------------------
     # num_blocks = 5
@@ -173,7 +161,7 @@ if __name__ == "__main__": # run sr_boost script
     #         fnn.Reverse(num_inputs)
     #     ]
     # flow = fnn.FlowSequential(*modules)
-    # map_location = lambda storage, loc: storage.cuda()
+    # map_location = device
     # best_model_path = torch.load(os.path.join(args.save, 'best_model.pth'), map_location=map_location)
     # flow.load_state_dict(best_model_path['model'])
     # flow.to(device)
@@ -185,13 +173,13 @@ if __name__ == "__main__": # run sr_boost script
     # ---------------------------------------------------------------------------------------------------
 
     g_ema = Generator(args.size, 512, 8).to(device)
-    map_location = lambda storage, loc: storage.cuda()
+    map_location = device
     g_ema.load_state_dict(torch.load(args.ckpt, map_location=map_location)["g_ema"], strict=False)
     g_ema.eval()
-    percept = lpips.PerceptualLoss(
-        model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
-    )
-    Downsampler = BicubicDownSample(factor=args.factor, device=device)
+    # percept = lpips.PerceptualLoss(
+    #     model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
+    # )
+    Downsampler = BicubicDownSample(factor=args.factor)
     noises = []  # stores all of the noise tensors
     noise_vars = []  # stores the noise tensors that we want to optimize on
     # num_trainable_noise_layers = g_ema.n_latent
@@ -317,8 +305,13 @@ if __name__ == "__main__": # run sr_boost script
                 # torch.save(best_latent, "w_nfp")
                 # torch.save(noises, "w_nfp_n")
                 # img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
-                img_name = f'{ref_im_name[i]}_1.png'
-                pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
+                if args.clas is None:
+                    img_name = f'{ref_im_name[i]}.jpg'
+                    pil_img.save(f'{args.out_dir}/{img_name}')
+                else:
+                    img_name = f'{ref_im_name[i]}.png'
+                    pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
+
                 # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
                 # img_name = f'{ref_im_name[i]}_HR.jpg'
                 # pil_img.save(f'{args.out_dir}/{img_name}')

@@ -7,7 +7,7 @@ from model import Generator
 # Face: -i 19 -d 5 -n 5 --ckpt "checkpoint/stylegan2-ffhq-config-f.pt" --size 1024 factor_face.pt --out_prefix
 # face_factor --truncation=0.5
 torch.cuda.set_device(0)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(1)
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
@@ -54,9 +54,8 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    map_location = lambda storage, loc: storage.cuda()
-    eigvec = torch.load(args.factor, map_location=map_location)["eigvec"].to(device)
-    ckpt = torch.load(args.ckpt, map_location=map_location)
+    eigvec = torch.load(args.factor, map_location=device)["eigvec"].to(device)
+    ckpt = torch.load(args.ckpt, map_location=device)
     # g = Generator(args.size, 512, 8, channel_multiplier=args.channel_multiplier).to(device)
     g = Generator(args.size, 512, 8).to(device)
     g.load_state_dict(ckpt["g_ema"], strict=False)
@@ -65,8 +64,8 @@ if __name__ == "__main__":
 
     # latent = torch.randn(args.n_sample, 512, device=device)
     # latent = g.get_latent(latent)
-    latent = torch.load('w_nf', map_location=map_location)
-    noises = torch.load('w_nf_n', map_location=map_location)
+    latent = torch.load('w_nf', map_location=device)
+    noises = torch.load('w_nf_n', map_location=device)
 
     direction = args.degree * eigvec[:, args.index].unsqueeze(0)
     # img, _ = g(
