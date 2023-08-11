@@ -2,6 +2,8 @@ import argparse
 import math
 import numpy as np
 import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 import torch
 from torch.utils.data import DataLoader, Dataset
 import torchvision
@@ -99,8 +101,9 @@ if __name__ == '__main__':
         type=str,
         help='Path to the dataset fid statistics.',
         default='input/project/fid_stats_hr.pth') # input/project/fid_stats_hr.pth
-    parser.add_argument('--input_dir', type=str, help='Path to the dataset.', default='input/project/reso')
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--input_dir', type=str, help='Path to the dataset.',
+                        default='/projects/superres/Marzieh/ddrm/exp/image_samples/ffhq_1024_8x')
+    parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_sample', type=int, default=2000)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--backend', type=str, default='disk', help='io backend for dataset. Option: disk, lmdb')

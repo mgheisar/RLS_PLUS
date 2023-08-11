@@ -12,8 +12,8 @@ from shape_predictor import align_face
 
 parser = argparse.ArgumentParser(description='PULSE')
 
-parser.add_argument('-input_dir', type=str, default='input/project/resHR', help='directory with unprocessed images')
-parser.add_argument('-output_dir', type=str, default='input/project/resLR32x', help='output directory')
+parser.add_argument('-input_dir', type=str, default='input/project/LR_team', help='directory with unprocessed images')
+parser.add_argument('-output_dir', type=str, default='input/project/', help='output directory')
 parser.add_argument('-factor', type=int, default=32, help='scale to downscale the input images to, must be power of 2')
 parser.add_argument('-seed', type=int, help='manual seed to use')
 parser.add_argument('-cache_dir', type=str, default='cache', help='cache directory for model weights')

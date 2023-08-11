@@ -1,10 +1,10 @@
-# # optimizer g using anchor point
+# # optimizer g and noise using anchor point
 import os
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 import argparse
 import torchvision
-import pickle
+import lpips
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
@@ -111,11 +111,11 @@ if __name__ == "__main__":
                                  'occlusion',
                                  'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
                                  'perspective', 'gray', 'colorjitter'])
-    parser.add_argument("--num_trainable_noise_layers", type=int, default=7, help="number of trainable noise layers")
-    parser.add_argument("--radius", type=int, default=4, help="radius of the l1 ball")
+    parser.add_argument("--num_trainable_noise_layers", type=int, default=9, help="number of trainable noise layers")
+    parser.add_argument("--radius", type=int, default=1, help="radius of the l1 ball")
     # ---------------------------------------------------
     parser.add_argument("--steps", type=int, default=200, help="optimize iterations")
-    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.1, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.001, help='logp regularization')  # 0.001
     parser.add_argument('--pnorm', type=float, default=0.002, help='pnorm regularization')  # 0.002
     parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
@@ -139,16 +139,10 @@ if __name__ == "__main__":
         "--noise", type=float, default=0.05, help="strength of the noise level"
     )
     parser.add_argument(
-        "--noise_ramp",
+        "--space_regularize",
         type=float,
-        default=0.75,
-        help="duration of the noise level decay",
-    )
-    parser.add_argument(
-        "--noise_regularize",
-        type=float,
-        default=0,
-        help="weight of the noise regularization",
+        default=0.1,
+        help="weight of the sapce regularization",
     )
     parser.add_argument("--mse", type=float, default=1, help="weight of the mse loss")
     # parser.add_argument(
@@ -198,7 +192,7 @@ if __name__ == "__main__":
 
     n_mean_latent = 1000000
     if args.clas is None:
-        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:42]
     else:
         image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
     dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
@@ -229,8 +223,7 @@ if __name__ == "__main__":
             latent_mean = latent_out.mean(0)
         noises = []  # stores all of the noise tensors
         noise_vars = []  # stores the noise tensors that we want to optimize on
-        num_trainable_noise_layers = 0  # args.num_trainable_noise_layers  # number of noise layers that we want to optimize on
-        # num_trainable_noise_layers = 0
+        num_trainable_noise_layers = 0
         for i in range(g_ema.n_latent - 1):
             # dimension of the ith noise tensor
             res = (1, 1, 2 ** ((i + 1) // 2 + 2), 2 ** ((i + 1) // 2 + 2))
@@ -262,9 +255,9 @@ if __name__ == "__main__":
                 latent_in = latent.detach().clone()
             if image_index % args.duplicate == 0:
                 best_latent_multiple = []
-        w_anchor = torch.load(f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+').to(device)
-        latent_in = w_anchor.detach().clone()
-        latent_in.requires_grad = True
+        # w_anchor = torch.load(f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+').to(device)
+        # percept = lpips.PerceptualLoss(model="net-lin", net="alex")
+        # latent_in = w_anchor.detach().clone()
         opt_dict = {
             'sgd': torch.optim.SGD,
             'adam': torch.optim.Adam,
@@ -273,85 +266,45 @@ if __name__ == "__main__":
         from ada.models_utils import toogle_grad
         g_ema = g_ema.float()
         toogle_grad(g_ema, True)
-        # var_list = [latent_in] + noise_vars
-        # optimizer = torch.optim.Adam(var_list, lr=args.lr)
-        optimizer_g = torch.optim.Adam(g_ema.parameters(), lr=0.0005)
-        schedule_dict = {
-            'fixed': lambda x: 1,
-            'linear1cycle': lambda x: (9 * (1 - np.abs(x / args.steps - 1 / 2) * 2) + 1) / 10,
-            'linear1cycledrop': lambda x: (9 * (
-                    1 - np.abs(
-                x / (0.9 * args.steps) - 1 / 2) * 2) + 1) / 10 if x < 0.9 * args.steps else 1 / 10 + (
-                    x - 0.9 * args.steps) / (0.1 * args.steps) * (1 / 1000 - 1 / 10),
-        }
+        optimizer_g = torch.optim.Adam(g_ema.parameters(), lr=0.0001)
         pbar = tqdm(range(args.steps))
         start_t = time.time()
         min_loss = np.inf
         for i in pbar:
             t = i / args.steps
-            # optimizer.zero_grad()
             optimizer_g.zero_grad()
             img_gen, _ = g_ema([latent_in], input_is_latent=True, noise=noises)
             img_gen = (img_gen + 1) / 2
             # #-----NF ---------------------------------------------------------------------------
             l1_loss = F.l1_loss(Downsampler(img_gen), ref_im)
-            loss = 10 * l1_loss
+            n_loss = noise_regularize(noises)
+            loss = 10 * l1_loss  # + args.space_regularize * loss_space  #
             if loss < min_loss:
                 min_loss = loss
-                best_summary = f'L1: {l1_loss.item():.3f}'
+                best_summary = f'L1: {l1_loss.item():.3f}, n loss: {n_loss.item():.3f}'
                 best_im = img_gen.detach().clone()
                 best_latent = latent_in.detach().clone()
                 best_step = i + 1
                 best_rec = l1_loss.item()
-            if i % 10 == 0:
+            # if i == args.steps-21 or i == args.steps-11 or i == args.steps-1:
+            if i == args.steps-31 or i == args.steps-21 or i == args.steps-11 or i == args.steps-1:
                 im = img_gen.detach().clone()
                 pil_img = toPIL(im[0].cpu().detach().clamp(0, 1))
-                img_name = f'boost_{ref_im_name}_{i}_g.jpg'
+                img_name = f'{ref_im_name[0]}_g_{i}.jpg'
                 pil_img.save(f'{args.out_dir}/{img_name}')
             if torch.isnan(loss):
                 break
             loss.backward()
-            # optimizer.step()
             optimizer_g.step()
 
             noise_normalize_(noises)
-            # deviation = project_onto_l1_ball(latent_in - w_anchor, args.radius*np.sqrt(512))  #  2*np.sqrt(512)
-            # var_list[0].data = w_anchor + deviation
-
-            # test = torch.norm(deviation, p=1, dim=1)
-            # deviations = [project_onto_l1_ball(lat_in - lat_m,  args.radius*np.sqrt(512))
-            #               for lat_in, lat_m in zip(latent_in, w_anchor)]
-            # a = torch.stack(deviations, 0)
-            # var_list[0].data = w_anchor + torch.stack(deviations, 0)
 
             pbar.set_description(
                 (
-                    f" L1: {l1_loss.item():.3f};"
+                    f" L1: {l1_loss.item():.3f}; n loss: {n_loss.item():.3f};"
 
                 )
             )
 
         total_t = time.time() - start_t
         print(f'time: {total_t:.1f}')
-        best_im_LR = Downsampler(best_im)
-        # perceptual = percept(best_im, ref_im_hr).mean()
-        # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
-        for i in range(args.batchsize):
-            pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
-            pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
-            # img_name = ref_im_name[i] + f'boost.jpg'
-            # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
-            #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
-            #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
-            if args.clas is None:
-                img_name = f'{ref_im_name[i]}_boost.jpg'
-                pil_img.save(f'{args.out_dir}/{img_name}')
-            else:
-                img_name = f'{ref_im_name[i]}.png'
-                pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
-            # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
-            # img_name = f'{ref_im_name[i]}_HR.jpg'
-            # pil_img.save(f'input/project/{img_name}')
-
-        print(best_summary)
-            # print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

@@ -73,8 +73,8 @@ class SingleIDCoach(BaseCoach):
             # w_pivot = w_pivot.to(device)
             #
             # torch.save(w_pivot, f'{embedding_dir}/0.pt')
-            w_pivot = torch.load(f'input/project/resSR/test/wnf_{global_config.factor}/wnf_{self.image_counter}').to(device)
-            w_anchors = torch.load(f'input/project/resSR/test/wnf_{global_config.factor}/w_nf_{self.image_counter}_10')
+            w_pivot = torch.load(f'input/project/resSR/RLSPlus/wnf_{global_config.factor}/wnf_{self.image_counter}').to(device)
+            w_anchors = torch.load(f'input/project/resSR/RLSPlus/wnf_{global_config.factor}/w_nf_{self.image_counter}_10')
             w_anchors = torch.stack(w_anchors).squeeze(1).to(device)
             log_images_counter = 0
             real_images_batch = image.to(device)
@@ -128,7 +128,7 @@ class SingleIDCoach(BaseCoach):
                 if i % 10 == 0:
                     pil_img = toPIL(generated_images[0].cpu().detach().clamp(0, 1))  # normalizing image (0, 1)
                     # pil_img = make_image(generated_images[0]) # normalizing image (-1, 1)
-                    pil_img.save(f'input/project/resSR/test/traing/{image_name}_{i}_'
+                    pil_img.save(f'input/project/resSR/RLSPlus/traing/{image_name}_{i}_'
                                  f'perc{lambda_space}_disc{lambda_disc}.jpg')
             self.image_counter += 1
 

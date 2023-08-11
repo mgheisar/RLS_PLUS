@@ -17,7 +17,7 @@ torch.manual_seed(0)
 torch.cuda.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -54,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument('--val_batch_size', type=int, default=1024)
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
+    parser.add_argument("--nf_stat", type=str, default='wlatent_face1024.pkl', help='latent data stats')
 
     args = parser.parse_args()
     args.test_batch_size = args.batch_size
@@ -117,8 +118,8 @@ if __name__ == "__main__":
     z_samples = z_samples.cpu().numpy()
     w_samples = w_samples.cpu().numpy()
     subset = {"Z space": z_samples, "W space": w_samples, "PULSE": p_samples,
-              "Ours": nf_samples}
-    spaces = ['Z space', 'W space', 'PULSE', 'Ours']
+              "RLS": nf_samples}
+    spaces = ['Z space', 'W space', 'PULSE', 'RLS']
     for space in spaces:
         measurements = subset[space]
         a = np.power(np.linalg.norm(measurements, axis=1), 2)

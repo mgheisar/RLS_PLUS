@@ -37,7 +37,7 @@ class Images(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_list[idx // self.duplicates]
         image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
-        hr_path = "input/project/resHR/" + os.path.basename(img_path).split(".")[0] + "_HR.jpg"
+        hr_path = "input/project/resHR/" + os.path.basename(img_path).split("_")[0] + "_64x_HR.jpg"
         image_hr = self.transform(Image.open(hr_path)).to(torch.device("cuda"))
         if self.duplicates == 1:
             return image, image_hr, os.path.splitext(os.path.basename(img_path))[0]
@@ -125,26 +125,39 @@ if __name__ == "__main__":
                         help='fixed, linear1cycledrop, linear1cycle')
 
     # ---------------------------------------------------
-    parser.add_argument("--input_dir", type=str, default="input/input", help="output directory")
+    parser.add_argument("--clas", type=int, default=None, help="class label for the generator")
+    parser.add_argument("--input_dir", type=str, default="input/project", help="path to the input image")
+    parser.add_argument("--out_dir", type=str, default="input/project", help="path to the output image")
     parser.add_argument('--factor', type=int, default=64, help='Super resolution factor')
     parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
-    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.1, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.0005, help='logp regularization')
     parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
     parser.add_argument('--pnorm', type=float, default=0.01, help='pnorm regularization')
-    parser.add_argument("--out_dir", type=str, default="", help="output directory")
     parser.add_argument("--gpu_num", type=int, default=2, help="gpu number")
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
     parser.add_argument('--eps', type=float, default=100)
+    parser.add_argument("--duplicate", type=int, default=1,
+                        help="number of times to duplicate the image in the dataset")
+    parser.add_argument('--augs', default=None, nargs='+',
+                        help='which augmentations are used to test robustness',
+                        choices=['rotate', 'vflip', 'hflip', 'contrast', 'brightness', 'noise', 'gaussiannoise',
+                                 'occlusion',
+                                 'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
+                                 'perspective', 'gray', 'colorjitter'])
 
     args = parser.parse_args()
-    gpu_num = args.gpu_num
-    torch.cuda.set_device(gpu_num)
-    cuda = torch.cuda.is_available()
+    if args.augs is not None:
+        args.out_dir = os.path.join(args.out_dir, args.augs[0])
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_mean_latent = 1000000
-    image_list = sorted(glob.glob(f"input/project/resLR/*_{args.factor}x.jpg"))[:2000]
-    dataset = Images(image_list, duplicates=1)
+    if args.clas is None:
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))  # [1200:]
+    else:
+        image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
+    dataset = Images(image_list, duplicates=args.duplicate)
     dataloader = DataLoader(dataset, batch_size=args.batchsize)
     # ---------------------------------------------------------------------------------------------------
     lambda_pix = 0.001
@@ -160,9 +173,9 @@ if __name__ == "__main__":
     #
     # discriminator.load_state_dict(torch.load(args.ckpt, map_location=device)["d"], strict=False)
     # discriminator.eval()
-    percept = lpips.PerceptualLoss(
-        model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
-    )
+    # percept = lpips.PerceptualLoss(
+    #     model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
+    # )
     # Downsampler = BicubicDownSample(factor=args.factor)
     Downsampler = ForwardDownsample(factor=1/args.factor)
 
@@ -193,6 +206,7 @@ if __name__ == "__main__":
     with dnnlib.util.open_url(url) as f:
         vgg16 = torch.jit.load(f).eval().to(device)
     for ref_im, ref_im_hr, ref_im_name in dataloader:
+        image_id = ref_im_name[0].split("_")[0]
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
         torch.backends.cudnn.deterministic = True
@@ -219,17 +233,17 @@ if __name__ == "__main__":
         # latent_in = latent_mean_.detach().clone()
 
         latent_in.requires_grad = True
-        optimizer = torch.optim.Adam([latent_in] + noise_vars, lr=args.lr)
-        schedule_dict = {
-            'fixed': lambda x: 1,
-            'linear1cycle': lambda x: (9 * (1 - np.abs(x / args.steps - 1 / 2) * 2) + 1) / 10,
-            'linear1cycledrop': lambda x: (9 * (
-                    1 - np.abs(
-                x / (0.9 * args.steps) - 1 / 2) * 2) + 1) / 10 if x < 0.9 * args.steps else 1 / 10 + (
-                    x - 0.9 * args.steps) / (0.1 * args.steps) * (1 / 1000 - 1 / 10),
-        }
-        schedule_func = schedule_dict[args.lr_schedule]
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule_func)
+        optimizer = torch.optim.Adam([latent_in] + noise_vars, betas=(0.9, 0.999), lr=args.lr)
+        # schedule_dict = {
+        #     'fixed': lambda x: 1,
+        #     'linear1cycle': lambda x: (9 * (1 - np.abs(x / args.steps - 1 / 2) * 2) + 1) / 10,
+        #     'linear1cycledrop': lambda x: (9 * (
+        #             1 - np.abs(
+        #         x / (0.9 * args.steps) - 1 / 2) * 2) + 1) / 10 if x < 0.9 * args.steps else 1 / 10 + (
+        #             x - 0.9 * args.steps) / (0.1 * args.steps) * (1 / 1000 - 1 / 10),
+        # }
+        # schedule_func = schedule_dict[args.lr_schedule]
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule_func)
 
         # optimizer = torch.optim.Adam([latent_in],
         #                              betas=(0.9, 0.999),
@@ -266,13 +280,14 @@ if __name__ == "__main__":
                 best_summary = f'L1: {pixelwise_loss.item():.3f}; L2: {perceptual_loss.item():.3f}; ' \
                                f'cross: {cosine_loss:.3f};w_loss: {w_loss:.3f}'
                 best_im = img_gen.detach().clone()
+                best_latent = latent_in.detach().clone()
                 best_step = i + 1
                 best_rec = pixelwise_loss.item()
             if torch.isnan(loss):
                 break
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            # scheduler.step()
 
             pbar.set_description(
                 (
@@ -285,23 +300,26 @@ if __name__ == "__main__":
         if best_rec > args.eps:
             print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
+            if args.duplicate == 1:
+                torch.save(best_latent, f'input/project/resSR/RLSPlus/wnf_{args.factor}/wnf_{image_id}_brgm')
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)
-            perceptual = percept(best_im, ref_im_hr).mean()
-            L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
+            # perceptual = percept(best_im, ref_im_hr).mean()
+            # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
             for i in range(args.batchsize):
                 pil_img = toPIL(best_im[i])
                 pil_img_lr = toPIL(best_im_LR[i])
-                # img_name = ref_im_name[i] + f'boost.jpg'
-                # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
-                #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
-                #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
-                img_name = f'{ref_im_name[i]}_brgm_{best_rec:.3f}.jpg'
-                pil_img.save(f'input/project/{img_name}')
-                # pil_img = toPIL(ref_im_hr[i])
-                # img_name = f'{ref_im_name[i]}_HR.jpg'
-                # pil_img.save(f'input/project/resbrgm/{img_name}')
+                # torch.save(best_latent, "w_nfp")
+                # img_name = f'{ref_im_name[i]}_pulse_l1_{best_rec:.3f}.jpg'
+                if args.clas is None:
+                    img_name = f'{ref_im_name[i]}.jpg'
+                    pil_img.save(f'{args.out_dir}/{img_name}')
+                else:
+                    img_name = f'{ref_im_name[i]}.png'
+                    pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
 
+                # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
+                # img_name = f'{ref_im_name[i]}_HR.jpg'
+                # pil_img.save(f'{args.out_dir}/{img_name}')
             print(best_summary)
-            print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

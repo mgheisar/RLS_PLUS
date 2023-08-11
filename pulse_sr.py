@@ -84,7 +84,7 @@ if __name__ == "__main__": # run sr_boost script
         default=0.75,
         help="duration of the noise level decay",
     )
-    parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
+    parser.add_argument("--steps", type=int, default=100, help="optimize iterations")
     parser.add_argument(
         "--noise_regularize",
         type=float,
@@ -104,8 +104,7 @@ if __name__ == "__main__": # run sr_boost script
                         help='Whether to store and save intermediate images during optimization')
     parser.add_argument('--lr_schedule', type=str, default='linear1cycledrop',
                         help='fixed, linear1cycledrop, linear1cycle')
-    parser.add_argument('--img_idx', type=int, default=2, help='image index')
-    parser.add_argument('--eps', type=float, default=10, help='epsilon')
+    parser.add_argument('--eps', type=float, default=100, help='epsilon')
     # -------NF params------------------------------------------------------------------
     parser.add_argument(
         '--arch', choices=['icnn', 'icnn2', 'icnn3', 'denseicnn2', 'resicnn2'], type=str, default='icnn2',
@@ -133,8 +132,13 @@ if __name__ == "__main__": # run sr_boost script
     parser.add_argument('--fp64', action='store_true', default=False)
     parser.add_argument('--brute_val', action='store_true', default=False)
     parser.add_argument("--batchsize", type=int, default=1, help="batch size")
+    parser.add_argument('--num_trainable_noise_layers', type=int, default=5, help='Number of noise layers to optimize')
 
     args = parser.parse_args()
+    if args.augs is not None:
+        args.out_dir = os.path.join(args.out_dir, args.augs[0])
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
     if args.augs is not None:
         args.out_dir = os.path.join(args.out_dir, args.augs)
         if not os.path.exists(args.out_dir):
@@ -144,6 +148,7 @@ if __name__ == "__main__": # run sr_boost script
     cuda = torch.cuda.is_available()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_mean_latent = 1000000
+    print(f"{args.input_dir}/*_{args.factor}x.jpg")
     if args.clas is None:
         image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))
     else:
@@ -180,20 +185,6 @@ if __name__ == "__main__": # run sr_boost script
     #     model="net-lin", net="vgg", use_gpu=device.startswith("cuda"), gpu_ids=[int(gpu_num)]
     # )
     Downsampler = BicubicDownSample(factor=args.factor)
-    noises = []  # stores all of the noise tensors
-    noise_vars = []  # stores the noise tensors that we want to optimize on
-    # num_trainable_noise_layers = g_ema.n_latent
-    num_trainable_noise_layers = 0
-    for i in range(g_ema.n_latent - 1):
-        # dimension of the ith noise tensor
-        res = (1, 1, 2 ** ((i + 1) // 2 + 2), 2 ** ((i + 1) // 2 + 2))
-        new_noise = torch.randn(res, dtype=torch.float, device=device)
-        if i < num_trainable_noise_layers:
-            new_noise.requires_grad = True
-            noise_vars.append(new_noise)
-        else:
-            new_noise.requires_grad = False
-        noises.append(new_noise)
 
     with torch.no_grad():
         torch.manual_seed(0)
@@ -206,6 +197,7 @@ if __name__ == "__main__": # run sr_boost script
     torch.cuda.manual_seed(0)
     torch.backends.cudnn.deterministic = True
     for ref_im, ref_im_hr, ref_im_name in dataloader:
+        image_id = ref_im_name[0].split("_")[0]
         if args.duplicate == 1:
             torch.manual_seed(0)
             torch.cuda.manual_seed(0)
@@ -228,6 +220,18 @@ if __name__ == "__main__": # run sr_boost script
             'adam': torch.optim.Adam,
             'adamax': torch.optim.Adamax,
         }
+        noises = []  # stores all of the noise tensors
+        noise_vars = []  # stores the noise tensors that we want to optimize on
+        for i in range(g_ema.n_latent - 1):
+            # dimension of the ith noise tensor
+            res = (1, 1, 2 ** ((i + 1) // 2 + 2), 2 ** ((i + 1) // 2 + 2))
+            new_noise = torch.randn(res, dtype=torch.float, device=device)
+            if i < args.num_trainable_noise_layers:
+                new_noise.requires_grad = True
+                noise_vars.append(new_noise)
+            else:
+                new_noise.requires_grad = False
+            noises.append(new_noise)
         # latent = latent_in
         # optimizer = torch.optim.Adam([latent_in] + noise_vars, lr=args.lr)
         optimizer = SphericalOptimizer(optim.Adam, [latent] + noise_vars, lr=args.lr)
@@ -266,11 +270,12 @@ if __name__ == "__main__": # run sr_boost script
             cross_loss = 0
             if args.w_plus:
                 cross_loss = geocross(latent)
-                loss += 0.1 * cross_loss  # 0.01
+                loss += 0.05 * cross_loss  # 0.01
             if loss < min_loss:
                 min_loss = loss
                 best_summary = f'L1: {l1_loss.item():.3f}; L2: {mse_loss.item():.3f}; Cross: {cross_loss:.3f};'
                 best_im = img_gen.detach().clone()
+                best_latent = latent_in.detach().clone()
                 best_rec = l1_loss.item()
             loss.backward()
             optimizer.step()
@@ -294,6 +299,8 @@ if __name__ == "__main__": # run sr_boost script
         if best_rec > args.eps:
             print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
+            if args.duplicate == 1:
+                torch.save(best_latent, f'input/project/resSR/RLSPlus/wnf_{args.factor}/wnf_{image_id}_pulse')
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
             best_im_LR = Downsampler(best_im)

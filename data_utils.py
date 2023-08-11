@@ -85,8 +85,14 @@ class Images(Dataset):
         img_path = self.image_list[idx // self.duplicates]
         ToPIL = torchvision.transforms.ToPILImage()
         im_name = Path(img_path).stem.split('_')[0]
+        # out_dir = 'input/project/resSR/robustness/lr'
         if self.aug is None:
-            image = torchvision.transforms.ToTensor()(Image.open(img_path)).to(torch.device("cuda"))
+            transform = torchvision.transforms.Compose([torchvision.transforms.Resize(int(1024/self.factor),
+                                                      interpolation=Image.BICUBIC), torchvision.transforms.ToTensor()])
+            image = transform(Image.open(img_path)).to(torch.device("cuda"))
+            # transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
+            # image = transform(Image.open(img_path)).to(torch.device("cuda"))
+            # image = self.Downsampler(image.unsqueeze(0))[0]
         elif 'motionblur' in self.aug:
             # image = self.transform(Image.open(os.path.join("input/project/resHR", im_name + "_64x_HR.jpg"))).to(
             #     torch.device('cuda'))
@@ -95,14 +101,16 @@ class Images(Dataset):
             motion_blur = MotionBlur(kernel_size=49, angle=45, direction=1)
             image = motion_blur(image.unsqueeze(0)).squeeze(0)
             # img = toPIL(image.cpu().detach().clamp(0, 1))
-            # img.save(f"{out_dir}/{im_name}_{self.aug}_hr{idx}.jpg")
+            # img.save(f"{out_dir}/{im_name}_{elf.aug[0]}_hr{self.factor}.jpg")
             image = self.Downsampler(image.unsqueeze(0))[0]
             # img = toPIL(image.cpu().detach().clamp(0, 1))
-            # img.save(f"{out_dir}/{im_name}_{self.aug}_lr{idx}.jpg")
+            # img = img.resize((1024, 1024), Image.NEAREST)
+            # img.save(f"{out_dir}/{im_name}_{self.aug[0]}_lr{self.factor}.jpg")
         elif self.aug:
             image = self.transform(Image.open(img_path)).to(torch.device("cuda"))
             # img = toPIL(image.cpu().detach().clamp(0, 1))
-            # img.save(f"{out_dir}/{im_name}_{self.aug}_lr{idx}.jpg")
+            # img = img.resize((1024, 1024), Image.NEAREST)
+            # img.save(f"{out_dir}/{im_name}_{self.aug[0]}_lr{self.factor}.jpg")
         image_hr = []
         # image_hr = torchvision.transforms.ToTensor()(Image.open(img_path.split('_')[0] + '_HR.jpg')).to(
         # torch.device("cuda"))

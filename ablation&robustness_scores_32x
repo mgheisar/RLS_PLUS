@@ -1,0 +1,68 @@
+GT
+input/project/resHR
+Average: NIQE: 3.64712
+#-----------------------------------
+base
+fid stats hr: 4.220891816158222
+Average: NIQE: 4.079412
+Average: PSNR: 20.060783 dB, SSIM: 0.594562
+
+#------------------------------------------------------
+logp0pnorm0cross0wFalse
+fid stats hr: 3.5818156169112747
+Average: NIQE: 4.066830
+Average: PSNR: 19.927943 dB, SSIM: 0.577043
+pnorm0
+fid stats hr: 4.126569121240301
+Average: NIQE: 4.364315
+Average: PSNR: 20.142985 dB, SSIM: 0.603308
+logp0pnorm0cross0wTrue
+fid stats hr: 4.8557533710293015
+Average: NIQE: 4.281485
+Average: PSNR: 19.513738 dB, SSIM: 0.589543
+logp0
+fid stats hr: 3.4379266558253114
+Average: NIQE: 3.755374
+Average: PSNR: 19.726730 dB, SSIM: 0.580859
+cross0
+fid stats hr: 3.55674188278973
+Average: NIQE: 3.979276
+Average: PSNR: 20.705285 dB, SSIM: 0.598564
+wFalse
+fid stats hr: 3.2789964079455878
+Average: NIQE: 3.841348
+Average: PSNR: 18.846745 dB, SSIM: 0.570560
+
+
+#---------------------------------------------------------------------------------------------------------------------
+
+Robustness
+motionblur
+fid stats hr: 4.332485196804932
+Average: NIQE: 4.061514
+Average: PSNR: 19.601950 dB, SSIM: 0.590684
+
+gaussianblur
+fid stats hr: 4.6625318297911615
+Average: NIQE: 4.169430
+Average: PSNR: 19.322577 dB, SSIM: 0.583146
+
+saltpepper
+fid stats hr: 4.238971445330748
+Average: NIQE: 4.074521
+Average: PSNR: 19.986194 dB, SSIM: 0.593507
+
+motionblur_100_1
+fid stats hr: 4.70371049412444
+Average: NIQE: 4.095415
+Average: PSNR: 18.581390 dB, SSIM: 0.578364
+
+gaussiannoise
+fid stats hr: 5.067331152073066
+Average: NIQE: 4.088594
+Average: PSNR: 19.604839 dB, SSIM: 0.581222
+
+
+
+
+

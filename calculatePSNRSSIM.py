@@ -5,6 +5,7 @@ from os import path as osp
 from glob import glob
 from metrics import calculate_psnr, calculate_ssim
 from metrics.matlab_functions import bgr2ycbcr
+import os
 
 
 def main(args):
@@ -15,11 +16,10 @@ def main(args):
     # img_list_gt = sorted(glob(f"{args.gt}/*.jpg"))[:args.num_samples]
     img_list_restored = sorted(glob(f"{args.restored}/*.jpg"))[:args.num_samples]
 
-    if args.test_y_channel:
-        print('Testing Y channel.')
-    else:
-        print('Testing RGB channels.')
-
+    # if args.test_y_channel:
+    #     print('Testing Y channel.')
+    # else:
+    #     print('Testing RGB channels.')
     for i, img_path in enumerate(img_list_restored):
         basename, ext = osp.splitext(osp.basename(img_path))
 
@@ -56,19 +56,20 @@ def main(args):
 
         # calculate PSNR and SSIM
         psnr = calculate_psnr(img_gt * 255, img_restored * 255, crop_border=args.crop_border, input_order='HWC')
-        ssim = calculate_ssim(img_gt * 255, img_restored * 255, crop_border=args.crop_border, input_order='HWC')
-        print(f'{i+1:3d}: {basename:25}. \tPSNR: {psnr:.6f} dB, \tSSIM: {ssim:.6f}')
+        # #ssim = calculate_ssim(img_gt * 255, img_restored * 255, crop_border=args.crop_border, input_order='HWC')
+        # print(f'{i+1:3d}: {basename:25}. \tPSNR: {psnr:.6f} dB,')  # \tSSIM: {ssim:.6f}')
         psnr_all.append(psnr)
-        ssim_all.append(ssim)
-    print(args.gt)
-    print(args.restored)
-    print(f'Average: PSNR: {sum(psnr_all) / len(psnr_all):.6f} dB, SSIM: {sum(ssim_all) / len(ssim_all):.6f}')
-
+        # ssim_all.append(ssim)
+    # print(args.gt)
+    # print(args.restored)
+    print(f'Average: PSNR: {sum(psnr_all) / len(psnr_all):.6f} dB')  # , SSIM: {sum(ssim_all) / len(ssim_all):.6f}
+    return sum(psnr_all) / len(psnr_all)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--gt', type=str, default='datasets/val_set14/Set14', help='Path to gt (Ground-Truth)')
-    parser.add_argument('--restored', type=str, default='results/Set14', help='Path to restored images')
+    parser.add_argument('--gt', type=str, default='input/project/resHR', help='Path to gt (Ground-Truth)')
+    parser.add_argument('--restored', type=str, default='input/project/resSR/RLSPlus/train/16x'
+                        , help='Path to restored images')
     parser.add_argument('--num_samples', type=int, default=2000, help='Number of samples to calculate PSNR and SSIM')
     parser.add_argument('--crop_border', type=int, default=0, help='Crop border for each side')
     parser.add_argument('--suffix', type=str, default='', help='Suffix for restored images')
@@ -78,4 +79,20 @@ if __name__ == '__main__':
         help='If True, test Y channel (In MatLab YCbCr format). If False, test RGB channels.')
     parser.add_argument('--correct_mean_var', action='store_true', help='Correct the mean and var of restored images.')
     args = parser.parse_args()
-    main(args)
+    dir_path = "input/project/resSR/RLSPlus/Test_ablation_pco"
+    dirs = os.listdir(dir_path)
+    psnr_metric = []
+    logp = []
+    for dir in dirs:
+        args.restored = os.path.join(dir_path, dir)
+        print('0.' + dir.split('logp')[1])
+        logp.append('0.' + dir.split('logp')[1])
+        psnr_metric.append(main(args))
+    print(psnr_metric)
+    print(logp)
+    # plot the figure to show the relationship between logp and psnr
+    import matplotlib.pyplot as plt
+    plt.plot(logp, psnr_metric)
+    plt.xlabel('logp')
+    plt.ylabel('PSNR')
+    plt.savefig('input/project/resSR/RLSPlus/psnr_Test_ablation_pco.png')

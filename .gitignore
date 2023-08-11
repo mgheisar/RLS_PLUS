@@ -143,5 +143,17 @@ dmypy.json
 wandb/
 
 
-/lpips/weights/
-/doc/
+lpips/weights/
+doc/
+BBBC021/
+apply_factor_cells/
+checkpoint/
+Golgi/
+Golgi_summary/
+sample/
+input/
+ada/
+apply_factor/
+apply_factor_cells/
+
+

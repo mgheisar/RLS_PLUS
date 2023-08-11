@@ -102,7 +102,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--clas", type=int, default=None, help="class label for the generator")
     parser.add_argument("--input_dir", type=str, default="input/project/lrr/lrrrr", help="path to the input image")
-    parser.add_argument("--out_dir", type=str, default="input/project/resSR/test/train", help="path to the output image")
+    parser.add_argument("--out_dir", type=str, default="input/project/resSR/RLSPlus/train", help="path to the output image")
     parser.add_argument('--factor', type=int, default=16, help='Super resolution factor')
     parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
     parser.add_argument("--duplicate", type=int, default=1, help='number of duplications')
@@ -111,11 +111,11 @@ if __name__ == "__main__":
                                  'occlusion',
                                  'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
                                  'perspective', 'gray', 'colorjitter'])
-    parser.add_argument("--num_trainable_noise_layers", type=int, default=7, help="number of trainable noise layers")
-    parser.add_argument("--radius", type=int, default=4, help="radius of the l1 ball")
+    parser.add_argument("--num_trainable_noise_layers", type=int, default=9, help="number of trainable noise layers")
+    parser.add_argument("--radius", type=int, default=1, help="radius of the l1 ball")
     # ---------------------------------------------------
     parser.add_argument("--steps", type=int, default=200, help="optimize iterations")
-    parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.1, help="learning rate")
     parser.add_argument('--logp', type=float, default=0.001, help='logp regularization')  # 0.001
     parser.add_argument('--pnorm', type=float, default=0.002, help='pnorm regularization')  # 0.002
     parser.add_argument('--cross', type=float, default=0.1, help='cross regularization')
@@ -192,7 +192,7 @@ if __name__ == "__main__":
 
     n_mean_latent = 1000000
     if args.clas is None:
-        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:42]
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))
     else:
         image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
     dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
@@ -256,9 +256,12 @@ if __name__ == "__main__":
                 latent_in = latent.detach().clone()
             if image_index % args.duplicate == 0:
                 best_latent_multiple = []
-        w_anchor = torch.load(f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+').to(device)
-        percept = lpips.PerceptualLoss(model="net-lin", net="alex")
-        # w_anchor_n = torch.load(f'input/project/resSR/test/wnf_{args.factor}/w_nf_{image_id}_10')
+        if args.augs is not None:
+            w_anchor = torch.load(f'{args.out_dir}/wnf_{image_id}').to(device)
+        else:
+            w_anchor = torch.load(f'input/project/resSR/RLSPlus/wnf_{args.factor}/wnf_{image_id}+').to(device)
+        # percept = lpips.PerceptualLoss(model="net-lin", net="alex")
+        # w_anchor_n = torch.load(f'input/project/resSR/RLSPlus/wnf_{args.factor}/w_nf_{image_id}_10')
         # w_anchor_n = torch.stack(w_anchor_n).squeeze(1).to(device)
         latent_in = w_anchor.detach().clone()
         latent_in.requires_grad = True
@@ -309,11 +312,12 @@ if __name__ == "__main__":
                 best_latent = latent_in.detach().clone()
                 best_step = i + 1
                 best_rec = l1_loss.item()
-            # if i % 10 == 0:
-            #     im = img_gen.detach().clone()
-            #     pil_img = toPIL(im[0].cpu().detach().clamp(0, 1))
-            #     img_name = f'boost_{ref_im_name}_{i}_d{args.radius}_n{args.num_trainable_noise_layers}_wng.jpg'
-            #     pil_img.save(f'{args.out_dir}/{img_name}')
+            # if i == args.steps-21 or i == args.steps-11 or i == args.steps-1:
+            if i == args.steps - 1:
+                im = img_gen.detach().clone()
+                pil_img = toPIL(im[0].cpu().detach().clamp(0, 1))
+                img_name = f'{ref_im_name[0]}_boost{i}.jpg'
+                pil_img.save(f'{args.out_dir}/{img_name}')
             if torch.isnan(loss):
                 break
             loss.backward()
@@ -340,25 +344,25 @@ if __name__ == "__main__":
 
         total_t = time.time() - start_t
         print(f'time: {total_t:.1f}')
-        best_im_LR = Downsampler(best_im)
-        # perceptual = percept(best_im, ref_im_hr).mean()
-        # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
-        for i in range(args.batchsize):
-            pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
-            pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
-            # img_name = ref_im_name[i] + f'boost.jpg'
-            # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
-            #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
-            #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
-            if args.clas is None:
-                img_name = f'{ref_im_name[i]}_boost_T.jpg'
-                pil_img.save(f'{args.out_dir}/{img_name}')
-            else:
-                img_name = f'{ref_im_name[i]}.png'
-                pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
-            # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
-            # img_name = f'{ref_im_name[i]}_HR.jpg'
-            # pil_img.save(f'input/project/{img_name}')
-
-        print(best_summary)
+        # best_im_LR = Downsampler(best_im)
+        # # perceptual = percept(best_im, ref_im_hr).mean()
+        # # L1_norm = F.l1_loss(best_im, ref_im_hr).mean()
+        # for i in range(args.batchsize):
+        #     pil_img = toPIL(best_im[i].cpu().detach().clamp(0, 1))
+        #     pil_img_lr = toPIL(best_im_LR[i].cpu().detach().clamp(0, 1))
+        #     # img_name = ref_im_name[i] + f'boost.jpg'
+        #     # img_name = ref_im_name[i] + 'lr' + str(args.lr).split('.')[-1] \
+        #     #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
+        #     #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
+        #     if args.clas is None:
+        #         img_name = f'{ref_im_name[i]}_boost.jpg'
+        #         pil_img.save(f'{args.out_dir}/{img_name}')
+        #     else:
+        #         img_name = f'{ref_im_name[i]}.png'
+        #         pil_img.save(f'{args.out_dir}/{args.clas}/{img_name}')
+        #     # pil_img = toPIL(ref_im_hr[i].cpu().detach().clamp(0, 1))
+        #     # img_name = f'{ref_im_name[i]}_HR.jpg'
+        #     # pil_img.save(f'input/project/{img_name}')
+        #
+        # print(best_summary)
             # print(' percept: ', perceptual.item(), 'l1:', L1_norm.item())

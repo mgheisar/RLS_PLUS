@@ -71,7 +71,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--clas", type=int, default=None, help="class label for the generator")
     parser.add_argument("--input_dir", type=str, default="input/project/lrr/lrrrr", help="path to the input image")
-    parser.add_argument("--out_dir", type=str, default="input/project/resSR/test", help="path to the output image")
+    parser.add_argument("--out_dir", type=str, default="input/project/resSR/RLSPlus", help="path to the output image")
     parser.add_argument('--factor', type=int, default=16, help='Super resolution factor')
     parser.add_argument("--gpu_num", type=int, default=1, help="gpu number")
     parser.add_argument("--duplicate", type=int, default=1, help='number of duplications')
@@ -80,7 +80,7 @@ if __name__ == "__main__":
                                  'occlusion',
                                  'regularblur', 'defocusblur', 'motionblur', 'gaussianblur', 'saltpepper',
                                  'perspective', 'gray', 'colorjitter'])
-
+    parser.add_argument("--save_anchor", action="store_false", help="allow to save anchor points")
     # ---------------------------------------------------
     parser.add_argument("--steps", type=int, default=500, help="optimize iterations")
     parser.add_argument("--lr", type=float, default=0.5, help="learning rate")
@@ -166,7 +166,7 @@ if __name__ == "__main__":
 
     n_mean_latent = 1000000
     if args.clas is None:
-        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:42]
+        image_list = sorted(glob.glob(f"{args.input_dir}/*_{args.factor}x.jpg"))[:1000]
     else:
         image_list = sorted(glob.glob(f"{args.input_dir}/{args.clas}/*.png"))
     dataset = Images(image_list, duplicates=args.duplicate, aug=args.augs, factor=args.factor)
@@ -338,14 +338,17 @@ if __name__ == "__main__":
         if best_rec > args.eps:
             print("Generated image might not be satisfactory. Try running the search loop again.")
         else:
-            if args.duplicate == 1:
-                torch.save(best_latent, f'input/project/resSR/test/wnf_{args.factor}/wnf_{image_id}+')
-            else:
-                best_latent_multiple.append(best_latent)
-                image_index += 1
-                if image_index % args.duplicate == 0:
-                    torch.save(best_latent_multiple, f'input/project/resSR/test/wnf_{args.factor}/'
-                                                     f'w_nf_{image_id}_{args.duplicate}+')
+            if args.augs is not None and args.save_anchor:
+                torch.save(best_latent, f'{args.out_dir}/wnf_{image_id}')
+            elif args.save_anchor:
+                if args.duplicate == 1:
+                    torch.save(best_latent, f'input/project/resSR/RLSPlus/wnf_{args.factor}/wnf_{image_id}+')
+                else:
+                    best_latent_multiple.append(best_latent)
+                    image_index += 1
+                    if image_index % args.duplicate == 0:
+                        torch.save(best_latent_multiple, f'input/project/resSR/RLSPlus/wnf_{args.factor}/'
+                                                         f'w_nf_{image_id}_{args.duplicate}+')
 
             total_t = time.time() - start_t
             print(f'time: {total_t:.1f}')
@@ -360,7 +363,7 @@ if __name__ == "__main__":
                 #            + '_logp' + str(args.logp).split('.')[-1] + '_cross' + str(args.cross).split('.')[-1] \
                 #            + '_pnorm' + str(args.pnorm).split('.')[-1] + '_step' + str(best_step) + '.jpg'
                 if args.clas is None:
-                    img_name = f'{ref_im_name[i]}_T.jpg'
+                    img_name = f'{ref_im_name[i]}.jpg'
                     pil_img.save(f'{args.out_dir}/{img_name}')
                 else:
                     img_name = f'{ref_im_name[i]}.png'
