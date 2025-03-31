@@ -8,7 +8,7 @@ This repository contains implementations of two super-resolution methods based o
 - **RLS+ (RLS Plus)**  
   Implements the approach from [RLS+](https://arxiv.org/pdf/2311.16923). RLS+ builds on RLS by taking the latent code obtained from the initial regularized search as an **anchor point**. In a subsequent optimization stage, the method jointly fine-tunes the latent code, the noise inputs, and the generator’s weights within a small ℓ1-norm ball centered around this anchor. This further refinement allows the generator to expand its expressive range while remaining faithful to the image prior, thus striking an improved balance between reconstruction fidelity and realism.
 
-![Overview](overview.png)
+![Overview](fig1-1.png)
 
  <!-- ## Repository Structure
 
