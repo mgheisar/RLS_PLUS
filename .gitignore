@@ -135,7 +135,6 @@ dmypy.json
 *.pkl
 *.pth
 *.pt
-*.png
 *.jpg
 *.jpeg
 *.mp4
@@ -233,7 +232,6 @@ temp_g.py
 sr_boost_temp.py
 sr_boost_false.py
 sr_boost_ada_false.py
-sr_boost_ada.py
 res_paper.py
 pulse_sr.py
 id_loss.py

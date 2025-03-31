@@ -1,110 +1,78 @@
-# StyleGAN 2 in PyTorch
+# Super-Resolution via Regularized Latent Search (RLS & RLS+)
 
-Implementation of Analyzing and Improving the Image Quality of StyleGAN (https://arxiv.org/abs/1912.04958) in PyTorch
+This repository contains implementations of two super-resolution methods based on StyleGAN inversion. Both methods aim to reconstruct high-resolution (HR) images from low-resolution (LR) inputs by searching the latent space of a pretrained StyleGAN generator. The two approaches differ in how they constrain and refine the latent code:
 
-## Notice
+- **RLS (Regularized Latent Search)**  
+  Implements the approach from [RLS]( https://sslneurips22.github.io/paper_pdfs/paper_13.pdf). The core idea is to perform a latent search in StyleGAN’s intermediate latent space (W+) while using a normalizing flow model to “gaussianize” the latent distribution. This regularization ensures that the search remains within the dense, realistic regions of the latent space. In this way, the inverted latent code is more likely to lie on the original image manifold, leading to realistic outputs even for out-of-domain inputs.
 
-I have tried to match official implementation as close as possible, but maybe there are some details I missed. So please use this implementation with care.
+- **RLS+ (RLS Plus)**  
+  Implements the approach from [RLS+](https://arxiv.org/pdf/2311.16923). RLS+ builds on RLS by taking the latent code obtained from the initial regularized search as an **anchor point**. In a subsequent optimization stage, the method jointly fine-tunes the latent code, the noise inputs, and the generator’s weights within a small ℓ1-norm ball centered around this anchor. This further refinement allows the generator to expand its expressive range while remaining faithful to the image prior, thus striking an improved balance between reconstruction fidelity and realism.
 
-## Requirements
+![Overview](overview.png)
 
-I have tested on:
+ <!-- ## Repository Structure
 
-- PyTorch 1.3.1
-- CUDA 10.1/10.2
+- **rls.py**  
+  Contains the implementation of the original Regularized Latent Search (RLS) method. It leverages a pretrained StyleGAN generator along with a normalizing flow model to constrain the latent code search.
 
-## Usage
+- **rls_plus.py**  
+  Contains the implementation of RLS+, which takes the latent code computed by RLS as an anchor (saved separately) and further optimizes the latent code, noise inputs, and generator parameters.
 
-First create lmdb datasets:
+- **rls_utils.py (and/or utils.py)**  
+  Shared utility functions for both implementations. These modules include functions to set seeds, load the generator, create noise tensors, perform latent projection (onto an ℓ1-ball), and other helper routines common to both methods. --> 
 
-> python prepare_data.py --out LMDB_PATH --n_worker N_WORKER --size SIZE1,SIZE2,SIZE3,... DATASET_PATH
+## How to Use
 
-This will convert images to jpeg and pre-resizes it. This implementation does not use progressive growing, but you can create multiple resolution datasets using size arguments with comma separated lists, for the cases that you want to try another resolutions later.
+### Requirements
+- Pretrained StyleGAN weights and normalizing flow checkpoints
 
-Then you can train model in distributed settings
+### Running RLS
 
-> python -m torch.distributed.launch --nproc_per_node=N_GPU --master_port=PORT train.py --batch BATCH_SIZE LMDB_PATH
+To run the RLS implementation, use the command line. For example:
 
-train.py supports Weights & Biases logging. If you want to use it, add --wandb arguments to the script.
+```bash
+python rls.py --ckpt path/to/stylegan_checkpoint.pt --input_dir path/to/lr_images --out_dir results/rls --nf_path path/to/flow_checkpoint --nf_stat path/to/flow_stats.pkl --factor 16 --steps 500 --lr 0.5
+```
 
-#### SWAGAN
+This command will search for the best latent code (using the RLS method) for each input LR image and save the reconstructed HR outputs into the specified output directory.
 
-This implementation experimentally supports SWAGAN: A Style-based Wavelet-driven Generative Model (https://arxiv.org/abs/2102.06108). You can train SWAGAN by using
+### Running RLS+
 
-> python -m torch.distributed.launch --nproc_per_node=N_GPU --master_port=PORT train.py --arch swagan --batch BATCH_SIZE LMDB_PATH
+RLS+ requires an anchor latent code generated from RLS. Once you have saved the anchor latent codes (using RLS), you can fine-tune the generator, noise inputs, and latent code by running:
 
-As noted in the paper, SWAGAN trains much faster. (About ~2x at 256px.)
+```bash
+python rls_plus.py --ckpt path/to/stylegan_checkpoint.pt --input_dir path/to/lr_images --out_dir results/rls_plus --anchor_path path/to/saved_anchors --factor 16 --steps 50 --lr 0.0001 --num_trainable_noise_layers 9
+```
 
-### Convert weight from official checkpoints
+This stage refines the reconstruction by locally optimizing around the anchor point within an ℓ1-norm ball constraint.
 
-You need to clone official repositories, (https://github.com/NVlabs/stylegan2) as it is requires for load official checkpoints.
+<!-- ## Experimental Setup
 
-For example, if you cloned repositories in ~/stylegan2 and downloaded stylegan2-ffhq-config-f.pkl, You can convert it like this:
+- **Datasets:**  
+  The implementations have been tested on face datasets such as CelebA-HQ and FFHQ. The LR images are generated using bicubic downsampling with specified factors (e.g., 16×).
 
-> python convert_weight.py --repo ~/stylegan2 stylegan2-ffhq-config-f.pkl
+- **Optimization:**  
+  Both methods use Adam-based optimization with a custom learning rate scheduler. RLS runs for a larger number of iterations (e.g., 500) while RLS+ runs for a shorter fine-tuning stage (e.g., 50 iterations).
 
-This will create converted stylegan2-ffhq-config-f.pt file.
+- **Regularization:**  
+  RLS leverages a normalizing flow to enforce a standard Gaussian latent distribution and uses additional losses (e.g., p-norm and optional cross regularization). RLS+ further constrains the optimization with an ℓ1-norm ball around the anchor latent code.
+-->
 
-### Generate samples
 
-> python generate.py --sample N_FACES --pics N_PICS --ckpt PATH_CHECKPOINT
+## Citations
+<!-- Gheisari, Marzieh, and Auguste Genovesio. "Super-Resolution through StyleGAN Regularized Latent Search." 36th Conference on Neural Information Processing Systems (NeurIPS 2022). NeurIPS-Self-Supervised Learning-Theory and Practice. 2022. -->
+<!-- Gheisari, Marzieh, and Auguste Genovesio. "Super-Resolution through StyleGAN Regularized Latent Search: A Realism-Fidelity Trade-off." arXiv preprint arXiv:2311.16923 (2023). -->
 
-You should change your size (--size 256 for example) if you train with another dimension.
-
-### Project images to latent spaces
-
-> python projector.py --ckpt [CHECKPOINT] --size [GENERATOR_OUTPUT_SIZE] FILE1 FILE2 ...
-
-### Closed-Form Factorization (https://arxiv.org/abs/2007.06600)
-
-You can use `closed_form_factorization.py` and `apply_factor.py` to discover meaningful latent semantic factor or directions in unsupervised manner.
-
-First, you need to extract eigenvectors of weight matrices using `closed_form_factorization.py`
-
-> python closed_form_factorization.py [CHECKPOINT]
-
-This will create factor file that contains eigenvectors. (Default: factor.pt) And you can use `apply_factor.py` to test the meaning of extracted directions
-
-> python apply_factor.py -i [INDEX_OF_EIGENVECTOR] -d [DEGREE_OF_MOVE] -n [NUMBER_OF_SAMPLES] --ckpt [CHECKPOINT] [FACTOR_FILE]
-
-For example,
-
-> python apply_factor.py -i 19 -d 5 -n 10 --ckpt [CHECKPOINT] factor.pt
-
-Will generate 10 random samples, and samples generated from latents that moved along 19th eigenvector with size/degree +-5.
-
-![Sample of closed form factorization](factor_index-13_degree-5.0.png)
-
-## Pretrained Checkpoints
-
-[Link](https://drive.google.com/open?id=1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO)
-
-I have trained the 256px model on FFHQ 550k iterations. I got FID about 4.5. Maybe data preprocessing, resolution, training loop could made this difference, but currently I don't know the exact reason of FID differences.
-
-## Samples
-
-![Sample with truncation](doc/sample.png)
-
-Sample from FFHQ. At 110,000 iterations. (trained on 3.52M images)
-
-![MetFaces sample with non-leaking augmentations](doc/sample-metfaces.png)
-
-Sample from MetFaces with Non-leaking augmentations. At 150,000 iterations. (trained on 4.8M images)
-
-### Samples from converted weights
-
-![Sample from FFHQ](doc/stylegan2-ffhq-config-f.png)
-
-Sample from FFHQ (1024px)
-
-![Sample from LSUN Church](doc/stylegan2-church-config-f.png)
-
-Sample from LSUN Church (256px)
-
-## License
-
-Model details and custom CUDA kernel codes are from official repostiories: https://github.com/NVlabs/stylegan2
-
-Codes for Learned Perceptual Image Patch Similarity, LPIPS came from https://github.com/richzhang/PerceptualSimilarity
-
-To match FID scores more closely to tensorflow official implementations, I have used FID Inception V3 implementations in https://github.com/mseitzer/pytorch-fid
+```bibtex
+@article{gheisari2022rls,
+  title={Super-Resolution through StyleGAN Regularized Latent Search},
+  author={Gheisari, Marzieh and Genovesio, Auguste},
+  journal={36th Conference on Neural Information Processing Systems (NeurIPS 2022). NeurIPS-Self-Supervised Learning-Theory and Practice},
+  year={2022}
+}
+@article{gheisari2023rls+,
+  title={Super-Resolution through StyleGAN Regularized Latent Search: A Realism-Fidelity Trade-off},
+  author={Gheisari, Marzieh and Genovesio, Auguste},
+  journal={arXiv preprint arXiv:2311.16923},
+  year={2023}
+}
