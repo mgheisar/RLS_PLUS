@@ -306,9 +306,9 @@ factor, steps = 16, 70
 #         face.save(Path(input_dir) / (im.stem.split('_')[0] + f"_{factor}x.jpg"))
 
 # import cv2
-# img = cv2.imread("/projects/superres/Marzieh/SR_Stylegan/input/project/Yusef/patch21.jpg")
+# img = cv2.imread("/projects/superres/Marzieh/RLS/input/project/Yusef/patch21.jpg")
 # img = cv2.resize(img, (1024,1024), interpolation=cv2.INTER_NEAREST)
-# cv2.imwrite("/projects/superres/Marzieh/SR_Stylegan/input/project/Yusef/patch21_NN.jpg", img)
+# cv2.imwrite("/projects/superres/Marzieh/RLS/input/project/Yusef/patch21_NN.jpg", img)
 
 
 # pnorm_vec = [0.0001, 0.0005, 0.001, 0.002, 0.005]

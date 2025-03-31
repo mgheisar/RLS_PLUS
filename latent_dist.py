@@ -89,9 +89,14 @@ if __name__ == "__main__":
     with torch.no_grad():
         z_samples = torch.randn((5000, 512), dtype=torch.float32, device=device)
         w_samples = g_ema.style(z_samples)
-    p_samples = torch.nn.LeakyReLU(5)(w_samples)
-    p_samples = (p_samples - p_samples.mean(0)) / p_samples.std(0)
+    # p_samples = torch.nn.LeakyReLU(5)(w_samples)
+    # p_samples = (p_samples - p_samples.mean(0)) / p_samples.std(0)
+    # p_samples = p_samples.cpu().numpy()
+
+    w_samples_ = torch.nn.LeakyReLU(5)(w_samples)
+    p_samples = torch.nn.LeakyReLU(negative_slope=0.2)(w_samples_ * w_samples_.std(0) + w_samples_.mean(0))
     p_samples = p_samples.cpu().numpy()
+
 
     n_components = 512
     transformer = IncrementalPCA(n_components, whiten=False, batch_size=max(100, 5 * n_components))

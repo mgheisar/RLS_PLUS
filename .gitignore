@@ -5,9 +5,12 @@ __pycache__/
 
 # C extensions
 *.so
+*.csv
+*.sh
 
 # Distribution / packaging
 .Python
+.idea
 build/
 develop-eggs/
 dist/
@@ -139,22 +142,85 @@ dmypy.json
 *.gif
 *.iml
 *.xml
-*.dat
+*.rb
 
 wandb/
 
 
-lpips/weights/
-doc/
-BBBC021/
+/lpips/weights/
+/doc/
+
+# calc_inception.py inception.py --> fid.py
+calc_inception.py
+inception.py
+fid.py
+dataset_utils.py
+claculatePSNRSSIM.py
+
+LICENSE
+LICENSE-FID
+LICENSE-LPIPS
+LICENSE-NVIDIA
+
+generate.py
+
+prepare_data.py
+
+op.tar.gz
+
+
+calculate_niqe.py
+realism_w.py
+
+## remove for sharing
+## test_mean.py, sr_boost_temp.py, sr_boost_ada_pivot.py
 apply_factor_cells/
-checkpoint/
-Golgi/
-Golgi_summary/
-sample/
-input/
-ada/
 apply_factor/
-apply_factor_cells/
+BBBC021/
+cache/
+FLOWS/__pycache__/
+Golgi/
+torch_utils_brgm/
+ada/
+sample/
+Golgi_summary/
+checkpoint/
+metrics/
+torch_fidelity/
+input/
+
+test_robustness.py
+FindMaxima.py
+Golgi_classification.py
+interpolation.py
+golgi_plot.py
+make_anim.py
+brgm_utils.py
+BRGM.py
+golgi_boxplot.py
+LDA_Domain.py
+PCA_domain.py
+apply_factor.py
+apply_factor_multiple.py
+closed_form_factorization.py
+domain_interpolation.py
+ppl.py
+project_domain.py
+realism_fuction.py
+treatment_classification.py
+convert_weight.py
+sr_boost_ada_pivot.py
+calculateNIQE.py
+run_passive.py
+temp.py
+calculatePSNRSSIM.py
+realistic_metrics.py
+calculate_id_sim.py
+latent_dist.py
+apply_pca.py
 
 
+ablation_scores_64x
+ablation&robustness_scores_32x
+### distributed.py --> train.py
+### non_leaking.py --> train.py
