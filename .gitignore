@@ -143,6 +143,7 @@ dmypy.json
 *.iml
 *.xml
 *.rb
+*.npy
 
 wandb/
 
@@ -197,6 +198,7 @@ golgi_plot.py
 make_anim.py
 brgm_utils.py
 BRGM.py
+BRGM_adapted.py
 golgi_boxplot.py
 LDA_Domain.py
 PCA_domain.py
@@ -218,7 +220,27 @@ realistic_metrics.py
 calculate_id_sim.py
 latent_dist.py
 apply_pca.py
-
+Downscaling.py
+SR_multiple.py.
+test_mean.py
+test_modelscope.py
+test_GFPGAN.py
+test_cop.py
+temp_wn.py
+temp_gn.py
+temp_wng_mean.py
+temp_g.py
+sr_boost_temp.py
+sr_boost_false.py
+sr_boost_ada_false.py
+sr_boost_ada.py
+res_paper.py
+pulse_sr.py
+id_loss.py
+id_loss_v2.py
+align_face.py
+augs.py
+calculateFID.py
 
 ablation_scores_64x
 ablation&robustness_scores_32x
