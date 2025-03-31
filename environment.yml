@@ -1,4 +1,4 @@
-name: superres-torch
+name: rls
 channels:
   - anaconda
   - pytorch
@@ -211,4 +211,3 @@ dependencies:
   - yaml=0.2.5=h7b6447c_0
   - zlib=1.2.13=h166bdaf_4
   - zstd=1.5.2=h3eb15da_6
-prefix: /users/biocomp/gheisari/miniconda3/envs/superres-torch
