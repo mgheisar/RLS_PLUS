@@ -221,7 +221,7 @@ calculate_id_sim.py
 latent_dist.py
 apply_pca.py
 Downscaling.py
-SR_multiple.py.
+SR_multiple.py
 test_mean.py
 test_modelscope.py
 test_GFPGAN.py
